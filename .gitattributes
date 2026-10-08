@@ -1,0 +1,4 @@
+# Les scripts shell doivent impérativement garder des fins de ligne LF,
+# même sur un checkout Windows (sinon le "#!/usr/bin/env bash" devient
+# invalide une fois exécuté dans un conteneur Linux).
+*.sh text eol=lf

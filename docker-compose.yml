@@ -52,7 +52,9 @@ services:
     depends_on:
       - backend
     ports:
-      - "80:80"
+      # Port dédié : le 80 est déjà occupé par Caddy (reverse-proxy des
+      # autres projets déjà hébergés sur ce serveur).
+      - "8080:80"
     networks: [compta-net]
 
 networks:
