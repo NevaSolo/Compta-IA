@@ -12,6 +12,12 @@ backend/__pycache__/
 *.pyc
 backend/.env
 backend/uvicorn*.log
+backend/*.pid.txt
+backend/invoice*.prep.png
+frontend/vite*.log
+frontend/*.pid.txt
+frontend/build.log
+frontend/tsconfig.tsbuildinfo
 
 # Stockage applicatif (factures, modèles entraînés) — reste sur le serveur,
 # pas dans le dépôt

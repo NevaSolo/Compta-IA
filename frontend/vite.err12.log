@@ -1,9 +1,0 @@
-failed to load config from D:\Etude\son\frontend\vite.config.ts
-error when starting dev server:
-Error: The service was stopped
-    at D:\Etude\son\frontend\node_modules\esbuild\lib\main.js:949:34
-    at responseCallbacks.<computed> (D:\Etude\son\frontend\node_modules\esbuild\lib\main.js:603:9)
-    at Socket.afterClose (D:\Etude\son\frontend\node_modules\esbuild\lib\main.js:594:28)
-    at Socket.emit (node:events:531:35)
-    at endReadableNT (node:internal/streams/readable:1698:12)
-    at process.processTicksAndRejections (node:internal/process/task_queues:89:21)
