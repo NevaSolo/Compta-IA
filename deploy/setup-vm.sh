@@ -72,7 +72,7 @@ if [ ! -d "$APP_DIR/backend" ]; then
 fi
 
 echo "==> Configuration de MySQL (base + utilisateur dedies)"
-mysql -u root <<SQL
+mysql --default-character-set=utf8mb4 -u root <<SQL
 CREATE DATABASE IF NOT EXISTS ${DB_NAME} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE USER IF NOT EXISTS '${DB_USER}'@'localhost' IDENTIFIED BY '${DB_PASS}';
 GRANT ALL PRIVILEGES ON ${DB_NAME}.* TO '${DB_USER}'@'localhost';
@@ -80,8 +80,8 @@ FLUSH PRIVILEGES;
 SQL
 
 echo "==> Chargement du schema et du plan comptable"
-mysql -u root "${DB_NAME}" < "$APP_DIR/database/schema.sql"
-mysql -u root "${DB_NAME}" < "$APP_DIR/database/seed_accounts.sql"
+mysql --default-character-set=utf8mb4 -u root "${DB_NAME}" < "$APP_DIR/database/schema.sql"
+mysql --default-character-set=utf8mb4 -u root "${DB_NAME}" < "$APP_DIR/database/seed_accounts.sql"
 
 echo "==> Environnement virtuel Python + dependances backend"
 cd "$APP_DIR/backend"

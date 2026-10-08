@@ -2,6 +2,10 @@ services:
   db:
     image: mysql:8.0
     restart: unless-stopped
+    # Sans ces options, les scripts d'initialisation (schema.sql, seed_accounts.sql)
+    # sont lus avec le charset client latin1 par défaut : "é" est alors enregistré
+    # "Ã©" (double encodage) dans les libellés du plan comptable.
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci --character-set-client-handshake=FALSE
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       MYSQL_DATABASE: compta_ia_db
