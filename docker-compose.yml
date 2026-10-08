@@ -1,0 +1,64 @@
+services:
+  db:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: compta_ia_db
+    volumes:
+      - mysql_data:/var/lib/mysql
+      # Exécutés automatiquement par l'image MySQL au tout premier démarrage
+      # (dossier vide) — schéma + plan comptable malgache.
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./database/seed_accounts.sql:/docker-entrypoint-initdb.d/02-seed_accounts.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [compta-net]
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: mysql+pymysql://root:${MYSQL_ROOT_PASSWORD}@db:3306/compta_ia_db
+      SECRET_KEY: ${SECRET_KEY}
+      ACCESS_TOKEN_EXPIRE_MINUTES: 480
+      UPLOAD_DIR: /app/storage/uploads
+      MODELS_DIR: /app/storage/models
+      OCR_LANGUAGES: fr,en
+      OCR_FALLBACK_THRESHOLD: 0.55
+      OCR_REJECT_THRESHOLD: 0.40
+      DEFAULT_VAT_RATE: 0.20
+      DEFAULT_CURRENCY: MGA
+      RETRAIN_CORRECTION_THRESHOLD: 50
+      DB_HOST: db
+      DB_PORT: 3306
+      WEB_CONCURRENCY: 2
+    volumes:
+      - backend_storage:/app/storage
+      # Cache des modèles EasyOCR : évite de les re-télécharger à chaque
+      # reconstruction/redémarrage du conteneur.
+      - easyocr_cache:/root/.EasyOCR
+    networks: [compta-net]
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+    networks: [compta-net]
+
+networks:
+  compta-net:
+
+volumes:
+  mysql_data:
+  backend_storage:
+  easyocr_cache:

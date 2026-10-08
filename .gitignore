@@ -1,0 +1,33 @@
+# Secrets de déploiement — ne jamais committer
+.env
+
+# Node / Vite
+frontend/node_modules/
+frontend/dist/
+
+# Python
+backend/venv/
+backend/__pycache__/
+**/__pycache__/
+*.pyc
+backend/.env
+backend/uvicorn*.log
+
+# Stockage applicatif (factures, modèles entraînés) — reste sur le serveur,
+# pas dans le dépôt
+backend/storage/uploads/*
+backend/storage/models/*
+!backend/storage/uploads/.gitkeep
+!backend/storage/models/.gitkeep
+
+# Sauvegardes de travail du mémoire
+*_backup_*.docx
+~$*.docx
+
+# Outillage local (pas du code projet)
+.claude/
+
+# Dump de base de données brut (données de démo) — le schéma versionné
+# fait foi dans database/schema.sql
+compta_ia_db.sql
+

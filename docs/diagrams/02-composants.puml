@@ -1,0 +1,91 @@
+@startuml diagramme-composants
+!theme plain
+title Diagramme de composants - Backend FastAPI (Clean Architecture)
+
+skinparam componentStyle rectangle
+skinparam shadowing false
+
+package "Presentation Layer" {
+  [AuthRouter] as authR
+  [InvoiceRouter] as invR
+  [EntryRouter] as entR
+  [DashboardRouter] as dashR
+  [JWT Middleware] as jwtmw
+}
+
+package "Application Layer (Use Cases)" {
+  [UploadInvoiceUseCase] as uc1
+  [ProcessInvoicePipelineUseCase] as uc2
+  [GenerateEntriesUseCase] as uc3
+  [ValidateEntryUseCase] as uc4
+  [RetrainModelUseCase] as uc5
+  [AuditService] as audit
+}
+
+package "Domain Layer" {
+  [Entites : Invoice, JournalEntry,\nEntryLine, Account, User] as entities
+  [Regles metier :\nBalanceValidator (Debit=Credit)\nVATCalculator] as domrules
+  interface "InvoiceRepository" as iInvRepo
+  interface "EntryRepository" as iEntRepo
+  interface "AccountRepository" as iAccRepo
+  interface "OCREngine" as iOcr
+  interface "EntityExtractor" as iNlp
+  interface "OperationClassifier" as iMl
+  interface "FileStorage" as iStore
+}
+
+package "Infrastructure Layer" {
+  [MySQLInvoiceRepository] as invRepo
+  [MySQLEntryRepository] as entRepo
+  [MySQLAccountRepository] as accRepo
+  [EasyOCRAdapter] as easyocr
+  [TesseractAdapter] as tess
+  [SpacyExtractorAdapter] as spacy
+  [SklearnClassifierAdapter] as sklearn
+  [LocalFileStorage] as storage
+  database "MySQL 8" as db
+}
+
+authR --> jwtmw
+invR --> uc1
+invR --> uc2
+entR --> uc3
+entR --> uc4
+dashR --> audit
+
+uc1 ..> iInvRepo
+uc1 ..> iStore
+uc2 ..> iOcr
+uc2 ..> iNlp
+uc2 ..> iMl
+uc3 ..> iAccRepo
+uc3 ..> domrules
+uc4 ..> iEntRepo
+uc4 --> audit
+uc5 ..> iMl
+
+uc2 --> entities
+uc3 --> entities
+
+iInvRepo <|.. invRepo
+iEntRepo <|.. entRepo
+iAccRepo <|.. accRepo
+iOcr <|.. easyocr
+iOcr <|.. tess : fallback
+iNlp <|.. spacy
+iMl <|.. sklearn
+iStore <|.. storage
+
+invRepo --> db
+entRepo --> db
+accRepo --> db
+
+note bottom of iOcr
+  Inversion de dependances :
+  le domaine definit les interfaces,
+  l'infrastructure les implemente.
+  OCR interchangeable sans toucher
+  au metier.
+end note
+
+@enduml

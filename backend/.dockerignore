@@ -1,0 +1,12 @@
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.env
+storage/uploads/*
+storage/models/*
+!storage/uploads/.gitkeep
+!storage/models/.gitkeep
+uvicorn*.log
+tests/
+.git/

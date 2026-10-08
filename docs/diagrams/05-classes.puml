@@ -1,0 +1,190 @@
+@startuml diagramme-classes
+!theme plain
+title Diagramme de classes - Domaine metier
+
+skinparam shadowing false
+skinparam classAttributeIconSize 0
+hide circle
+
+enum Role {
+  ADMIN
+  COMPTABLE
+}
+
+enum InvoiceStatus {
+  UPLOADED
+  PREPROCESSING
+  OCR_DONE
+  ANALYZED
+  ENTRIES_PROPOSED
+  VALIDATED
+  REJECTED
+  ERROR
+}
+
+enum EntryStatus {
+  PROPOSED
+  CORRECTED
+  VALIDATED
+}
+
+enum OperationType {
+  ACHAT_MARCHANDISES
+  ACHAT_SERVICES
+  ACHAT_IMMOBILISATION
+  AUTRE
+}
+
+class User {
+  -id : int
+  -email : str
+  -passwordHash : str
+  -fullName : str
+  -role : Role
+  -isActive : bool
+  -createdAt : datetime
+  +verifyPassword(plain) : bool
+}
+
+class Invoice {
+  -id : int
+  -originalFilename : str
+  -storagePath : str
+  -mimeType : str
+  -language : str
+  -status : InvoiceStatus
+  -uploadedAt : datetime
+  -supplierName : str
+  -invoiceNumber : str
+  -invoiceDate : date
+  -totalHT : Decimal
+  -totalVAT : Decimal
+  -totalTTC : Decimal
+  -currency : str
+  +checkArithmetic() : bool
+}
+
+class OcrResult {
+  -id : int
+  -rawText : str
+  -engine : str
+  -meanConfidence : float
+  -blocks : JSON
+  -durationMs : int
+  -createdAt : datetime
+}
+
+class ExtractedEntity {
+  -id : int
+  -entityType : str
+  -value : str
+  -normalizedValue : str
+  -confidence : float
+  -sourceBlock : JSON
+  -method : str
+}
+
+class Classification {
+  -id : int
+  -operationType : OperationType
+  -probability : float
+  -modelVersionId : int
+}
+
+class JournalEntry {
+  -id : int
+  -entryDate : date
+  -label : str
+  -status : EntryStatus
+  -confidenceScore : float
+  -appliedRuleCode : str
+  -validatedAt : datetime
+  +totalDebit() : Decimal
+  +totalCredit() : Decimal
+  +isBalanced() : bool
+}
+
+class EntryLine {
+  -id : int
+  -label : str
+  -debit : Decimal
+  -credit : Decimal
+  -accountConfidence : float
+  -suggestedByML : bool
+}
+
+class Account {
+  -id : int
+  -code : str
+  -label : str
+  -accountClass : int
+  -isActive : bool
+}
+
+class AccountingRule {
+  -id : int
+  -code : str
+  -operationType : OperationType
+  -description : str
+  -template : JSON
+  -isActive : bool
+}
+
+class Correction {
+  -id : int
+  -fieldName : str
+  -originalValue : str
+  -correctedValue : str
+  -correctedAt : datetime
+  -usedForTraining : bool
+}
+
+class ModelVersion {
+  -id : int
+  -name : str
+  -version : str
+  -artifactPath : str
+  -accuracy : float
+  -f1Score : float
+  -trainedAt : datetime
+  -isActive : bool
+  -trainingSamples : int
+}
+
+class AuditLog {
+  -id : int
+  -action : str
+  -entityType : str
+  -entityId : int
+  -oldValue : JSON
+  -newValue : JSON
+  -timestamp : datetime
+}
+
+User "1" -- "0..*" Invoice : importe >
+Invoice "1" -- "1" OcrResult : produit >
+Invoice "1" -- "0..*" ExtractedEntity : contient >
+Invoice "1" -- "0..1" Classification : classee par >
+Invoice "1" -- "0..*" JournalEntry : genere >
+JournalEntry "1" *-- "2..*" EntryLine : compose de >
+EntryLine "0..*" -- "1" Account : impute sur >
+JournalEntry "0..*" -- "0..1" AccountingRule : appliquee par >
+JournalEntry "1" -- "0..*" Correction : corrigee via >
+User "1" -- "0..*" JournalEntry : valide >
+Classification "0..*" -- "1" ModelVersion : produite par >
+User "1" -- "0..*" AuditLog : declenche >
+
+note right of JournalEntry
+  Invariant fondamental :
+  totalDebit() == totalCredit()
+  verifie avant toute persistance.
+  Une ecriture a au minimum 2 lignes.
+end note
+
+note bottom of Correction
+  Chaque correction du comptable
+  devient une donnee d'entrainement
+  pour la version suivante du modele.
+end note
+
+@enduml

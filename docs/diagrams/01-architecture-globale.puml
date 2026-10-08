@@ -1,0 +1,58 @@
+@startuml architecture-globale
+!theme plain
+title Architecture globale - Systeme intelligent de generation d'ecritures comptables
+
+skinparam componentStyle rectangle
+skinparam shadowing false
+
+actor "Comptable" as comptable
+actor "Administrateur" as admin
+
+package "COUCHE PRESENTATION (Client)" {
+  [Application React\nVite + TypeScript + Tailwind] as front
+}
+
+package "COUCHE API (Serveur FastAPI)" {
+  [API REST\nRouters + Pydantic + JWT] as api
+  [Use Cases\n(Application Layer)] as usecases
+  [Domaine metier\nFacture / Ecriture / Compte\nInvariant: Debit = Credit] as domain
+}
+
+package "COUCHE IA (Pipeline asynchrone)" {
+  [Pretraitement image\nOpenCV] as preproc
+  [OCR multilingue\nEasyOCR (principal)\nTesseract (fallback)] as ocr
+  [Detection langue +\nNettoyage texte] as clean
+  [Extraction entites\nRegex + spaCy NER] as nlp
+  [Classification operation\nSklearn / XGBoost] as ml
+  [Moteur de regles\nPCG malgache 2005] as rules
+  [Apprentissage feedback\n(reentrainement versionne)] as feedback
+}
+
+package "COUCHE PERSISTANCE" {
+  database "MySQL 8\n(InnoDB, DECIMAL)" as db
+  folder "Stockage fichiers\n(factures PDF/JPG/PNG)" as files
+  folder "Artefacts ML\n(modeles .joblib versionnes)" as models
+}
+
+comptable --> front
+admin --> front
+front --> api : HTTPS / JSON (JWT)
+
+api --> usecases
+usecases --> domain
+usecases --> preproc : lancement pipeline\n(tache asynchrone)
+
+preproc --> ocr
+ocr --> clean
+clean --> nlp
+nlp --> ml
+ml --> rules
+rules --> usecases : ecritures proposees\n+ score de confiance
+
+usecases --> db : SQLAlchemy
+usecases --> files
+ml --> models : chargement modele actif
+feedback --> models : nouvelle version
+usecases --> feedback : corrections validees\npar le comptable
+
+@enduml

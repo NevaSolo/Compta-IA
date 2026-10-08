@@ -1,0 +1,50 @@
+@startuml diagramme-deploiement
+!theme plain
+title Diagramme de deploiement - Environnement CPU (sans GPU)
+
+skinparam shadowing false
+
+node "Poste client (navigateur)" as client {
+  artifact "SPA React (build statique)" as spa
+}
+
+node "Serveur applicatif\n(Windows/Linux, CPU only, 8-16 Go RAM)" as server {
+
+  node "Serveur web / reverse proxy\nNginx" as nginx {
+    artifact "Fichiers statiques React" as staticfiles
+  }
+
+  node "Runtime Python 3.11 (Uvicorn ASGI)" as uvicorn {
+    artifact "Application FastAPI" as app
+    artifact "Worker pipeline IA\n(BackgroundTasks)" as worker
+    artifact "EasyOCR + spaCy + Sklearn\n(modeles charges en memoire, CPU)" as iamodels
+  }
+
+  node "MySQL Server 8" as mysqlnode {
+    database "compta_ia_db" as db
+  }
+
+  folder "Volume fichiers" as vol {
+    artifact "uploads/ (factures)" as uploads
+    artifact "models/ (joblib versionnes)" as mlmodels
+  }
+}
+
+client --> nginx : HTTPS (443)
+nginx --> uvicorn : proxy /api (8000)
+nginx --> staticfiles : /
+app --> db : TCP 3306 (SQLAlchemy)
+app --> uploads : lecture/ecriture
+worker --> iamodels
+worker --> uploads : lecture images
+worker --> mlmodels : chargement/versionnement
+
+note right of uvicorn
+  Deploiement conteneurise possible :
+  docker-compose (api + mysql + nginx).
+  Tout le pipeline IA tourne en CPU :
+  EasyOCR mode CPU, spaCy et sklearn
+  natifs CPU.
+end note
+
+@enduml

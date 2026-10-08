@@ -1,0 +1,422 @@
+"""Implémentations MySQL des repositories (adaptateurs de persistance).
+Seule cette couche connaît SQLAlchemy ; elle convertit systématiquement
+les modèles ORM en entités du domaine et inversement."""
+from datetime import datetime
+from decimal import Decimal
+
+from rapidfuzz import fuzz
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+
+from app.domain import entities as dom
+from app.domain import ports
+from app.infrastructure.db import models as m
+
+
+# ------------------------------------------------------------ Mappers
+
+def _company_to_domain(row: m.CompanyModel) -> dom.Company:
+    return dom.Company(id=row.id, name=row.name, nif=row.nif, stat=row.stat,
+                       address=row.address, is_active=row.is_active)
+
+
+def _user_to_domain(row: m.UserModel) -> dom.User:
+    return dom.User(id=row.id, email=row.email, full_name=row.full_name,
+                    role=dom.Role(row.role), company_id=row.company_id,
+                    is_active=row.is_active, password_hash=row.password_hash)
+
+
+def _invoice_to_domain(row: m.InvoiceModel) -> dom.Invoice:
+    return dom.Invoice(
+        id=row.id, original_filename=row.original_filename, storage_path=row.storage_path,
+        mime_type=row.mime_type, file_size=row.file_size, uploaded_by=row.uploaded_by,
+        company_id=row.company_id,
+        status=dom.InvoiceStatus(row.status),
+        current_step=dom.PipelineStep(row.current_step) if row.current_step else None,
+        document_type=dom.DocumentType(row.document_type), supplier_id=row.supplier_id,
+        language=row.language, invoice_number=row.invoice_number,
+        invoice_date=row.invoice_date,
+        total_ht=Decimal(str(row.total_ht)) if row.total_ht is not None else None,
+        total_vat=Decimal(str(row.total_vat)) if row.total_vat is not None else None,
+        total_ttc=Decimal(str(row.total_ttc)) if row.total_ttc is not None else None,
+        currency=row.currency, arithmetic_ok=row.arithmetic_ok,
+        error_message=row.error_message)
+
+
+def _entry_to_domain(row: m.JournalEntryModel) -> dom.JournalEntry:
+    return dom.JournalEntry(
+        id=row.id, invoice_id=row.invoice_id, company_id=row.company_id,
+        entry_date=row.entry_date,
+        label=row.label, status=dom.EntryStatus(row.status),
+        confidence_score=float(row.confidence_score) if row.confidence_score is not None else None,
+        rule_code=row.rule.code if row.rule else None,
+        validated_by=row.validated_by, validated_at=row.validated_at,
+        lines=[dom.EntryLine(
+            id=line.id, account_id=line.account_id,
+            account_code=line.account.code if line.account else "",
+            label=line.label, debit=Decimal(str(line.debit)),
+            credit=Decimal(str(line.credit)),
+            account_confidence=float(line.account_confidence) if line.account_confidence is not None else None,
+            suggested_by_ml=line.suggested_by_ml, line_order=line.line_order,
+        ) for line in row.lines])
+
+
+# ------------------------------------------------------- Repositories
+
+class MySQLCompanyRepository(ports.CompanyRepository):
+    def __init__(self, db: Session):
+        self.db = db
+
+    def create(self, company: dom.Company) -> dom.Company:
+        row = m.CompanyModel(name=company.name, nif=company.nif, stat=company.stat,
+                             address=company.address, is_active=company.is_active)
+        self.db.add(row)
+        self.db.commit()
+        self.db.refresh(row)
+        return _company_to_domain(row)
+
+    def get_by_id(self, company_id: int) -> dom.Company | None:
+        row = self.db.get(m.CompanyModel, company_id)
+        return _company_to_domain(row) if row else None
+
+    def list_all(self) -> list[dom.Company]:
+        rows = self.db.scalars(select(m.CompanyModel).order_by(m.CompanyModel.name)).all()
+        return [_company_to_domain(r) for r in rows]
+
+    def set_active(self, company_id: int, is_active: bool) -> dom.Company | None:
+        row = self.db.get(m.CompanyModel, company_id)
+        if row is None:
+            return None
+        row.is_active = is_active
+        self.db.commit()
+        self.db.refresh(row)
+        return _company_to_domain(row)
+
+
+class MySQLUserRepository(ports.UserRepository):
+    def __init__(self, db: Session):
+        self.db = db
+
+    def get_by_email(self, email: str) -> dom.User | None:
+        row = self.db.scalar(select(m.UserModel).where(m.UserModel.email == email))
+        return _user_to_domain(row) if row else None
+
+    def get_by_id(self, user_id: int) -> dom.User | None:
+        row = self.db.get(m.UserModel, user_id)
+        return _user_to_domain(row) if row else None
+
+    def create(self, user: dom.User) -> dom.User:
+        row = m.UserModel(email=user.email, password_hash=user.password_hash,
+                          full_name=user.full_name, role=user.role.value,
+                          company_id=user.company_id, is_active=user.is_active)
+        self.db.add(row)
+        self.db.commit()
+        self.db.refresh(row)
+        return _user_to_domain(row)
+
+    def list_all(self, company_id: int | None = None) -> list[dom.User]:
+        query = select(m.UserModel).order_by(m.UserModel.id)
+        if company_id is not None:
+            query = query.where(m.UserModel.company_id == company_id)
+        rows = self.db.scalars(query).all()
+        return [_user_to_domain(r) for r in rows]
+
+    def set_active(self, user_id: int, is_active: bool) -> dom.User | None:
+        row = self.db.get(m.UserModel, user_id)
+        if row is None:
+            return None
+        row.is_active = is_active
+        self.db.commit()
+        self.db.refresh(row)
+        return _user_to_domain(row)
+
+
+class MySQLSupplierRepository(ports.SupplierRepository):
+    def __init__(self, db: Session):
+        self.db = db
+
+    def find_by_fuzzy_name(self, name: str, company_id: int,
+                           threshold: int = 90) -> dom.Supplier | None:
+        """Rapprochement flou (RapidFuzz) avec les fournisseurs connus de
+        CETTE entreprise — robuste aux erreurs OCR sur le nom, et cloisonné
+        par company_id (un fournisseur d'une autre entreprise ne doit
+        jamais être rapproché par erreur)."""
+        normalized = name.strip().upper()
+        best_row, best_score = None, 0
+        for row in self.db.scalars(select(m.SupplierModel)
+                                   .where(m.SupplierModel.company_id == company_id)).all():
+            score = fuzz.ratio(normalized, row.normalized_name)
+            if score > best_score:
+                best_row, best_score = row, score
+        if best_row and best_score >= threshold:
+            return self._to_domain(best_row)
+        return None
+
+    def get_or_create(self, supplier: dom.Supplier) -> dom.Supplier:
+        existing = self.db.scalar(select(m.SupplierModel).where(
+            m.SupplierModel.company_id == supplier.company_id,
+            m.SupplierModel.normalized_name == supplier.normalized_name))
+        if existing:
+            return self._to_domain(existing)
+        row = m.SupplierModel(company_id=supplier.company_id, name=supplier.name,
+                              normalized_name=supplier.normalized_name,
+                              nif=supplier.nif, stat=supplier.stat, address=supplier.address)
+        self.db.add(row)
+        self.db.commit()
+        self.db.refresh(row)
+        return self._to_domain(row)
+
+    def get_by_id(self, supplier_id: int) -> dom.Supplier | None:
+        row = self.db.get(m.SupplierModel, supplier_id)
+        return self._to_domain(row) if row else None
+
+    @staticmethod
+    def _to_domain(row: m.SupplierModel) -> dom.Supplier:
+        return dom.Supplier(id=row.id, company_id=row.company_id, name=row.name,
+                            normalized_name=row.normalized_name,
+                            nif=row.nif, stat=row.stat, address=row.address,
+                            default_account_id=row.default_account_id)
+
+
+class MySQLAccountRepository(ports.AccountRepository):
+    def __init__(self, db: Session):
+        self.db = db
+
+    def get_by_code(self, code: str) -> dom.Account | None:
+        row = self.db.scalar(select(m.AccountModel).where(m.AccountModel.code == code))
+        if not row:
+            return None
+        return dom.Account(id=row.id, code=row.code, label=row.label,
+                           account_class=row.account_class,
+                           normal_balance=row.normal_balance,
+                           parent_code=row.parent_code, is_active=row.is_active)
+
+    def list_active(self) -> list[dom.Account]:
+        rows = self.db.scalars(select(m.AccountModel)
+                               .where(m.AccountModel.is_active.is_(True))
+                               .order_by(m.AccountModel.code)).all()
+        return [dom.Account(id=r.id, code=r.code, label=r.label,
+                            account_class=r.account_class, normal_balance=r.normal_balance,
+                            parent_code=r.parent_code, is_active=r.is_active) for r in rows]
+
+
+class MySQLInvoiceRepository(ports.InvoiceRepository):
+    def __init__(self, db: Session):
+        self.db = db
+
+    def create(self, invoice: dom.Invoice) -> dom.Invoice:
+        row = m.InvoiceModel(
+            company_id=invoice.company_id,
+            uploaded_by=invoice.uploaded_by, original_filename=invoice.original_filename,
+            storage_path=invoice.storage_path, mime_type=invoice.mime_type,
+            file_size=invoice.file_size, status=invoice.status.value,
+            currency=invoice.currency)
+        self.db.add(row)
+        self.db.commit()
+        self.db.refresh(row)
+        return _invoice_to_domain(row)
+
+    def update(self, invoice: dom.Invoice) -> dom.Invoice:
+        row = self.db.get(m.InvoiceModel, invoice.id)
+        row.status = invoice.status.value
+        row.current_step = invoice.current_step.value if invoice.current_step else None
+        row.document_type = invoice.document_type.value
+        row.supplier_id = invoice.supplier_id
+        row.language = invoice.language
+        row.invoice_number = invoice.invoice_number
+        row.invoice_date = invoice.invoice_date
+        row.total_ht = invoice.total_ht
+        row.total_vat = invoice.total_vat
+        row.total_ttc = invoice.total_ttc
+        row.currency = invoice.currency
+        row.arithmetic_ok = invoice.arithmetic_ok
+        row.error_message = invoice.error_message
+        self.db.commit()
+        self.db.refresh(row)
+        return _invoice_to_domain(row)
+
+    def get_by_id(self, invoice_id: int) -> dom.Invoice | None:
+        row = self.db.get(m.InvoiceModel, invoice_id)
+        return _invoice_to_domain(row) if row else None
+
+    def list_paginated(self, status: str | None, page: int, size: int,
+                       company_id: int | None = None):
+        query = select(m.InvoiceModel)
+        if status:
+            query = query.where(m.InvoiceModel.status == status)
+        if company_id is not None:
+            query = query.where(m.InvoiceModel.company_id == company_id)
+        total = self.db.scalar(select(func.count()).select_from(query.subquery()))
+        rows = self.db.scalars(query.order_by(m.InvoiceModel.id.desc())
+                               .offset((page - 1) * size).limit(size)).all()
+        return [_invoice_to_domain(r) for r in rows], total or 0
+
+    def save_ocr_result(self, invoice_id, engine, raw_text, mean_confidence, blocks, duration_ms):
+        self.db.add(m.OcrResultModel(invoice_id=invoice_id, engine=engine,
+                                     raw_text=raw_text, mean_confidence=mean_confidence,
+                                     blocks=blocks, duration_ms=duration_ms))
+        self.db.commit()
+
+    def get_ocr_result(self, invoice_id: int) -> dict | None:
+        row = self.db.scalar(select(m.OcrResultModel)
+                             .where(m.OcrResultModel.invoice_id == invoice_id))
+        if not row:
+            return None
+        return {"engine": row.engine, "raw_text": row.raw_text,
+                "mean_confidence": float(row.mean_confidence),
+                "blocks": row.blocks, "duration_ms": row.duration_ms}
+
+    def save_entities(self, invoice_id: int, entities: list[dom.ExtractedEntity]) -> None:
+        for e in entities:
+            self.db.add(m.ExtractedEntityModel(
+                invoice_id=invoice_id, entity_type=e.entity_type, raw_value=e.raw_value[:500],
+                normalized_value=(e.normalized_value or "")[:500] or None,
+                confidence=e.confidence, extraction_method=e.method.value,
+                source_block=e.source_block))
+        self.db.commit()
+
+    def get_entities(self, invoice_id: int) -> list[dict]:
+        rows = self.db.scalars(select(m.ExtractedEntityModel)
+                               .where(m.ExtractedEntityModel.invoice_id == invoice_id)).all()
+        return [{"entity_type": r.entity_type, "raw_value": r.raw_value,
+                 "normalized_value": r.normalized_value, "confidence": float(r.confidence),
+                 "method": r.extraction_method, "source_block": r.source_block}
+                for r in rows]
+
+    def save_classification(self, invoice_id, operation_type, probability,
+                            probabilities, model_version):
+        version_row = self.db.scalar(
+            select(m.ModelVersionModel)
+            .where(m.ModelVersionModel.name == "operation_classifier",
+                   m.ModelVersionModel.version == model_version))
+        if not version_row:
+            version_row = m.ModelVersionModel(
+                name="operation_classifier", version=model_version,
+                algorithm="keyword" if model_version.startswith("keyword") else "sklearn",
+                artifact_path="builtin", is_active=True)
+            self.db.add(version_row)
+            self.db.flush()
+        self.db.add(m.ClassificationModel(
+            invoice_id=invoice_id, model_version_id=version_row.id,
+            operation_type=operation_type, probability=probability,
+            probabilities=probabilities))
+        self.db.commit()
+
+
+class MySQLEntryRepository(ports.EntryRepository):
+    def __init__(self, db: Session):
+        self.db = db
+
+    def create(self, entry: dom.JournalEntry) -> dom.JournalEntry:
+        rule_id = None
+        if entry.rule_code:
+            rule = self.db.scalar(select(m.AccountingRuleModel)
+                                  .where(m.AccountingRuleModel.code == entry.rule_code))
+            rule_id = rule.id if rule else None
+        row = m.JournalEntryModel(
+            invoice_id=entry.invoice_id, company_id=entry.company_id,
+            rule_id=rule_id, entry_date=entry.entry_date,
+            label=entry.label, status=entry.status.value,
+            confidence_score=entry.confidence_score)
+        for line in entry.lines:
+            row.lines.append(m.EntryLineModel(
+                account_id=line.account_id, label=line.label, debit=line.debit,
+                credit=line.credit, account_confidence=line.account_confidence,
+                suggested_by_ml=line.suggested_by_ml, line_order=line.line_order))
+        self.db.add(row)
+        self.db.commit()
+        self.db.refresh(row)
+        return _entry_to_domain(row)
+
+    def update(self, entry: dom.JournalEntry) -> dom.JournalEntry:
+        row = self.db.get(m.JournalEntryModel, entry.id)
+        row.status = entry.status.value
+        row.label = entry.label
+        row.validated_by = entry.validated_by
+        row.validated_at = entry.validated_at
+        # Mise à jour des lignes existantes (correction du comptable)
+        lines_by_id = {line.id: line for line in entry.lines if line.id}
+        for line_row in row.lines:
+            if line_row.id in lines_by_id:
+                src = lines_by_id[line_row.id]
+                line_row.account_id = src.account_id
+                line_row.label = src.label
+                line_row.debit = src.debit
+                line_row.credit = src.credit
+        self.db.commit()
+        self.db.refresh(row)
+        return _entry_to_domain(row)
+
+    def get_by_id(self, entry_id: int) -> dom.JournalEntry | None:
+        row = self.db.get(m.JournalEntryModel, entry_id)
+        return _entry_to_domain(row) if row else None
+
+    def list_by_invoice(self, invoice_id: int) -> list[dom.JournalEntry]:
+        rows = self.db.scalars(select(m.JournalEntryModel)
+                               .where(m.JournalEntryModel.invoice_id == invoice_id)).unique().all()
+        return [_entry_to_domain(r) for r in rows]
+
+    def list_paginated(self, status: str | None, page: int, size: int,
+                       company_id: int | None = None):
+        query = select(m.JournalEntryModel)
+        if status:
+            query = query.where(m.JournalEntryModel.status == status)
+        if company_id is not None:
+            query = query.where(m.JournalEntryModel.company_id == company_id)
+        total = self.db.scalar(select(func.count()).select_from(query.subquery()))
+        rows = self.db.scalars(query.order_by(m.JournalEntryModel.id.desc())
+                               .offset((page - 1) * size).limit(size)).unique().all()
+        return [_entry_to_domain(r) for r in rows], total or 0
+
+    def save_correction(self, entry_id, line_id, user_id, field_name, original, corrected):
+        self.db.add(m.CorrectionModel(
+            entry_id=entry_id, entry_line_id=line_id, corrected_by=user_id,
+            field_name=field_name, original_value=str(original)[:500],
+            corrected_value=str(corrected)[:500]))
+        self.db.commit()
+
+
+class MySQLRuleRepository(ports.RuleRepository):
+    def __init__(self, db: Session):
+        self.db = db
+
+    def get_active_for_operation(self, operation_type: str) -> dict | None:
+        row = self.db.scalar(select(m.AccountingRuleModel)
+                             .where(m.AccountingRuleModel.operation_type == operation_type,
+                                    m.AccountingRuleModel.is_active.is_(True))
+                             .order_by(m.AccountingRuleModel.priority))
+        if not row:
+            return None
+        return {"id": row.id, "code": row.code, "description": row.description,
+                "template": row.template, "operation_type": row.operation_type}
+
+    def list_all(self) -> list[dict]:
+        rows = self.db.scalars(select(m.AccountingRuleModel)
+                               .order_by(m.AccountingRuleModel.code)).all()
+        return [{"id": r.id, "code": r.code, "description": r.description,
+                 "operation_type": r.operation_type, "template": r.template,
+                 "priority": r.priority, "is_active": r.is_active} for r in rows]
+
+
+class MySQLAuditRepository(ports.AuditRepository):
+    def __init__(self, db: Session):
+        self.db = db
+
+    def log(self, user_id, action, entity_type, entity_id, old_value=None, new_value=None):
+        self.db.add(m.AuditLogModel(user_id=user_id, action=action,
+                                    entity_type=entity_type, entity_id=entity_id,
+                                    old_value=old_value, new_value=new_value))
+        self.db.commit()
+
+    def list_paginated(self, page: int, size: int):
+        total = self.db.scalar(select(func.count(m.AuditLogModel.id)))
+        rows = self.db.execute(
+            select(m.AuditLogModel, m.UserModel.full_name)
+            .outerjoin(m.UserModel, m.UserModel.id == m.AuditLogModel.user_id)
+            .order_by(m.AuditLogModel.id.desc())
+            .offset((page - 1) * size).limit(size)).all()
+        return [{"id": r.id, "user_id": r.user_id,
+                 "user_name": user_name,  # null pour les actions système (pipeline IA)
+                 "action": r.action, "entity_type": r.entity_type, "entity_id": r.entity_id,
+                 "old_value": r.old_value, "new_value": r.new_value,
+                 "created_at": r.created_at.isoformat()} for r, user_name in rows], total or 0

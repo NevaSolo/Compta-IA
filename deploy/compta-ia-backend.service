@@ -1,0 +1,28 @@
+[Unit]
+Description=Compta-IA - backend FastAPI (Uvicorn)
+After=network.target mysql.service
+Wants=mysql.service
+
+[Service]
+Type=simple
+User=compta_user_placeholder
+Group=compta_user_placeholder
+WorkingDirectory=/opt/compta-ia/backend
+Environment=PYTHONUNBUFFERED=1
+# Un seul worker : chaque worker Uvicorn charge sa propre copie des modeles
+# EasyOCR/PyTorch en memoire. Sur une instance a 1 Go de RAM (ex. GCP
+# e2-micro), 2 workers doublent cette empreinte et declenchent l'OOM killer
+# avant meme de servir une requete.
+ExecStart=/opt/compta-ia/backend/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 9000 --workers 1
+Restart=on-failure
+RestartSec=5
+
+# Le pipeline OCR/ML est gourmand en memoire (EasyOCR/PyTorch) : laisse le
+# systeme redemarrer le service plutot que de le laisser plante en cas de
+# pic memoire ponctuel, sans killer le reste de la VM. Avec le swap de 4 Go
+# cree par setup-vm.sh, la RAM+swap totale disponible depasse cette limite.
+MemoryMax=3G
+OOMScoreAdjust=200
+
+[Install]
+WantedBy=multi-user.target

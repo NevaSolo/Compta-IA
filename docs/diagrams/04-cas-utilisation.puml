@@ -1,0 +1,90 @@
+@startuml cas-utilisation
+!theme plain
+title Diagramme de cas d'utilisation - Systeme de generation d'ecritures comptables
+
+left to right direction
+skinparam shadowing false
+skinparam actorStyle awesome
+
+actor "Comptable" as comptable
+actor "Administrateur" as admin
+actor "Systeme IA\n(acteur secondaire)" as ia <<system>>
+
+rectangle "Systeme intelligent de generation des ecritures comptables" {
+
+  usecase "S'authentifier" as UC_auth
+
+  package "Gestion des factures" {
+    usecase "Importer une facture\n(PDF, JPG, PNG)" as UC_upload
+    usecase "Consulter une facture\net ses donnees extraites" as UC_view
+    usecase "Consulter l'historique\ndes traitements" as UC_histo
+  }
+
+  package "Traitement intelligent" {
+    usecase "Extraire le texte (OCR)" as UC_ocr
+    usecase "Analyser le contenu (NLP)" as UC_nlp
+    usecase "Classifier l'operation" as UC_classif
+    usecase "Generer les ecritures\ncomptables proposees" as UC_gen
+    usecase "Calculer le score\nde confiance" as UC_score
+  }
+
+  package "Validation comptable" {
+    usecase "Verifier les ecritures\nproposees" as UC_verif
+    usecase "Corriger une ecriture" as UC_corr
+    usecase "Valider definitivement\nune ecriture" as UC_valid
+  }
+
+  package "Pilotage et exports" {
+    usecase "Consulter le tableau de bord\net les statistiques" as UC_dash
+    usecase "Exporter en PDF" as UC_pdf
+    usecase "Exporter en Excel" as UC_xls
+  }
+
+  package "Administration" {
+    usecase "Gerer les utilisateurs\net les roles" as UC_users
+    usecase "Gerer le plan comptable\n(PCG malgache)" as UC_pcg
+    usecase "Consulter le journal d'audit" as UC_audit
+    usecase "Declencher le reentrainement\ndu modele ML" as UC_retrain
+  }
+}
+
+comptable --> UC_upload
+comptable --> UC_view
+comptable --> UC_histo
+comptable --> UC_verif
+comptable --> UC_corr
+comptable --> UC_valid
+comptable --> UC_dash
+comptable --> UC_pdf
+comptable --> UC_xls
+
+admin --> UC_users
+admin --> UC_pcg
+admin --> UC_audit
+admin --> UC_retrain
+
+UC_upload ..> UC_ocr : <<include>>
+UC_ocr ..> UC_nlp : <<include>>
+UC_nlp ..> UC_classif : <<include>>
+UC_classif ..> UC_gen : <<include>>
+UC_gen ..> UC_score : <<include>>
+
+UC_verif ..> UC_corr : <<extend>>
+UC_valid ..> UC_verif : <<include>>
+
+UC_ocr <-- ia
+UC_nlp <-- ia
+UC_classif <-- ia
+UC_gen <-- ia
+
+UC_upload ..> UC_auth : <<include>>
+UC_valid ..> UC_auth : <<include>>
+UC_users ..> UC_auth : <<include>>
+
+note bottom of UC_valid
+  Regle metier : aucune ecriture n'est
+  enregistree definitivement sans
+  validation humaine explicite.
+end note
+
+@enduml

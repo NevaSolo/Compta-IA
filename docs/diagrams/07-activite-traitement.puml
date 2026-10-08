@@ -1,0 +1,97 @@
+@startuml activite-traitement
+!theme plain
+title Diagramme d'activite - Traitement complet d'une facture
+
+skinparam shadowing false
+
+start
+:Le comptable importe une facture
+(PDF / JPG / PNG);
+:Validation du fichier
+(type MIME, taille);
+if (Fichier valide ?) then (non)
+  :Message d'erreur a l'utilisateur;
+  stop
+else (oui)
+endif
+:Enregistrement facture
+(statut = UPLOADED);
+
+partition "Pipeline IA (asynchrone)" {
+  :Pretraitement image
+  (conversion PDF, niveaux de gris,
+  redressement, binarisation);
+  :OCR EasyOCR
+  (texte + blocs + confiances);
+  if (Confiance OCR suffisante ?) then (non)
+    :Fallback Tesseract;
+    if (Toujours insuffisante ?) then (oui)
+      :Statut = ERROR
+      Facture signalee "illisible";
+      :Notification au comptable
+      pour saisie manuelle;
+      stop
+    else (non)
+    endif
+  else (oui)
+  endif
+  :Detection de la langue
+  + nettoyage du texte;
+  :Extraction des entites
+  (regex : montants, dates, NIF
+  spaCy : fournisseur, libelles);
+  if (HT + TVA = TTC ?) then (non)
+    :Marquer incoherence arithmetique
+    (alerte visuelle pour le comptable);
+  else (oui)
+  endif
+  :Classification du type d'operation
+  (ML + probabilite);
+  :Application du moteur de regles
+  (squelette debit/credit selon PCG);
+  :Suggestion ML des comptes precis
+  + scores de confiance;
+  if (Debit == Credit ?) then (non)
+    :Statut = ERROR
+    Ecriture rejetee (invariant viole);
+    stop
+  else (oui)
+  endif
+  :Calcul du score de confiance global;
+  :Statut = ENTRIES_PROPOSED;
+}
+
+partition "Validation humaine" {
+  :Le comptable examine
+  facture + ecritures + scores;
+  repeat
+    if (Ecriture correcte ?) then (non)
+      :Correction (compte, montant, libelle);
+      :Enregistrement de la correction
+      (future donnee d'entrainement);
+    else (oui)
+    endif
+  repeat while (Autres corrections ?) is (oui)
+  ->non;
+  :Validation definitive;
+  :Re-verification Debit == Credit;
+  :Statut = VALIDATED
+  + entree au journal d'audit;
+}
+
+partition "Apprentissage" {
+  if (Seuil de corrections atteint ?) then (oui)
+    :Reentrainement du modele
+    (nouvelle version evaluee);
+    if (Nouvelle version meilleure ?) then (oui)
+      :Activation de la nouvelle version;
+    else (non)
+      :Conservation du modele actif;
+    endif
+  else (non)
+  endif
+}
+
+stop
+
+@enduml

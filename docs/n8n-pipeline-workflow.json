@@ -1,0 +1,587 @@
+{
+  "name": "Compta-IA — Pipeline IA (génération d'écritures)",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "b1a1a1a1-0001-4a11-8a11-000000000001",
+      "name": "Déclenchement manuel",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1400,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "baseUrl",
+              "value": "http://host.docker.internal:9000",
+              "type": "string"
+            },
+            {
+              "id": "a2",
+              "name": "email",
+              "value": "comptable@compta-ia.mg",
+              "type": "string"
+            },
+            {
+              "id": "a3",
+              "name": "password",
+              "value": "Compta2026!",
+              "type": "string"
+            },
+            {
+              "id": "a4",
+              "name": "invoiceFilePath",
+              "value": "/data/downloads/*acture*.pdf",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b1a1a1a1-0002-4a11-8a11-000000000002",
+      "name": "Configuration",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -1180,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.baseUrl }}/api/auth/login",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ email: $json.email, password: $json.password }) }}",
+        "options": {}
+      },
+      "id": "b1a1a1a1-0003-4a11-8a11-000000000003",
+      "name": "Connexion (JWT)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -960,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "fileSelector": "={{ $('Configuration').item.json.invoiceFilePath }}",
+        "options": {}
+      },
+      "id": "b1a1a1a1-0004-4a11-8a11-000000000004",
+      "name": "Lire le fichier facture",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        -740,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Configuration').item.json.baseUrl }}/api/invoices",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "file",
+              "parameterType": "formBinaryData",
+              "inputDataFieldName": "data"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Connexion (JWT)').item.json.access_token }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b1a1a1a1-0005-4a11-8a11-000000000005",
+      "name": "Upload facture",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -520,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 2,
+        "unit": "seconds"
+      },
+      "id": "b1a1a1a1-0006-4a11-8a11-000000000006",
+      "name": "Attendre 2s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        -260,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Configuration').item.json.baseUrl }}/api/invoices/{{ $('Upload facture').item.json.id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Connexion (JWT)').item.json.access_token }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b1a1a1a1-0007-4a11-8a11-000000000007",
+      "name": "Vérifier progression",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        0,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-done",
+              "leftValue": "={{ $json.current_step }}",
+              "rightValue": "DONE",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "cond-error",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "ERROR",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "id": "b1a1a1a1-0008-4a11-8a11-000000000008",
+      "name": "Pipeline terminé ?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        260,
+        460
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Configuration').item.json.baseUrl }}/api/invoices/{{ $('Upload facture').item.json.id }}/ocr",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Connexion (JWT)').item.json.access_token }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b1a1a1a1-0009-4a11-8a11-000000000009",
+      "name": "Résultat OCR",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        560,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Configuration').item.json.baseUrl }}/api/invoices/{{ $('Upload facture').item.json.id }}/entities",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Connexion (JWT)').item.json.access_token }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b1a1a1a1-0010-4a11-8a11-000000000010",
+      "name": "Entités extraites",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        560,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Configuration').item.json.baseUrl }}/api/entries/by-invoice/{{ $('Upload facture').item.json.id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Connexion (JWT)').item.json.access_token }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b1a1a1a1-0011-4a11-8a11-000000000011",
+      "name": "Écriture comptable proposée",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        560,
+        580
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "b1a1a1a1-0012-4a11-8a11-000000000012",
+      "name": "Pipeline IA complet",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        840,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### Étapes internes exécutées par le backend pendant l'attente\n(app/application/pipeline.py — aucun appel API séparé, tout se déroule côté serveur entre l'upload et current_step = DONE)\n\n1. **Prétraitement** — redressement, débruitage, binarisation adaptative (OpenCV)\n2. **OCR** — EasyOCR, repli Tesseract si confiance < 0.55\n3. **Détection de la langue** — fr/en (langdetect)\n4. **Extraction d'entités** — regex ancrées + NER spaCy (montants, dates, NIF/STAT, fournisseur)\n5. **Contrôle de cohérence** — HT + TVA = TTC, résolution du montant manquant\n6. **Classification IA** — type d'opération (TF-IDF/XGBoost)\n7. **Moteur de règles** — gabarit comptable + suggestion de comptes contrainte\n8. **Score de confiance** — pondération OCR/extraction/classification/comptes",
+        "height": 460,
+        "width": 460
+      },
+      "id": "b1a1a1a1-0013-4a11-8a11-000000000013",
+      "name": "Note — 8 étapes du pipeline IA",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -260,
+        -260
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Configuration').item.json.baseUrl }}/api/invoices/{{ $('Upload facture').item.json.id }}/file",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Connexion (JWT)').item.json.access_token }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "b1a1a1a1-0014-4a11-8a11-000000000014",
+      "name": "Apercu de la facture (visuel)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1120,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### Apercu visuel\nCe dernier noeud telecharge l'image/PDF original de la facture (GET /api/invoices/{id}/file) en tant que fichier binaire : n8n en affiche automatiquement une miniature dans le panneau de resultats.",
+        "height": 200,
+        "width": 320
+      },
+      "id": "b1a1a1a1-0015-4a11-8a11-000000000015",
+      "name": "Note - Apercu visuel",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1080,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const entries = Array.isArray($json) ? $json : [$json];\nconst entry = entries[0];\nconst lines = entry.lines || [];\nconst fmt = (n) => Number(n || 0).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });\nconst totalDebit = lines.reduce((s, l) => s + Number(l.debit || 0), 0);\nconst totalCredit = lines.reduce((s, l) => s + Number(l.credit || 0), 0);\n\nconst rowsHtml = lines.map((l) => `\n  <tr>\n    <td>${l.account_code}</td>\n    <td>${l.label}</td>\n    <td class=\"num\">${l.debit && Number(l.debit) > 0 ? fmt(l.debit) : ''}</td>\n    <td class=\"num\">${l.credit && Number(l.credit) > 0 ? fmt(l.credit) : ''}</td>\n  </tr>`).join('');\n\nconst html = `<!DOCTYPE html>\n<html lang=\"fr\"><head><meta charset=\"utf-8\">\n<title>Ecriture comptable - ${entry.label}</title>\n<style>\n  body { font-family: Arial, sans-serif; margin: 2rem; color: #1e293b; }\n  h1 { font-size: 1.1rem; margin-bottom: .2rem; }\n  .meta { color: #64748b; font-size: .85rem; margin-bottom: 1rem; }\n  table { border-collapse: collapse; width: 100%; font-size: .9rem; }\n  th, td { border: 1px solid #cbd5e1; padding: 8px 10px; text-align: left; }\n  th { background: #f1f5f9; }\n  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }\n  tfoot td { font-weight: bold; background: #f8fafc; }\n  .badge { display:inline-block; padding:2px 8px; border-radius:999px; background:#fef3c7; color:#92400e; font-size:.75rem; }\n</style></head>\n<body>\n  <h1>Ecriture comptable propos&eacute;e</h1>\n  <p class=\"meta\">${entry.label} &mdash; ${entry.entry_date} &mdash;\n     statut <span class=\"badge\">${entry.status}</span> &mdash;\n     confiance ${Math.round((entry.confidence_score || 0) * 100)}%</p>\n  <table>\n    <thead><tr><th>Compte</th><th>Libelle</th><th class=\"num\">Debit</th><th class=\"num\">Credit</th></tr></thead>\n    <tbody>${rowsHtml}</tbody>\n    <tfoot><tr><td colspan=\"2\">TOTAL</td><td class=\"num\">${fmt(totalDebit)}</td><td class=\"num\">${fmt(totalCredit)}</td></tr></tfoot>\n  </table>\n</body></html>`;\n\nreturn [{ json: { html, entryId: entry.id }, binary: {\n  data: {\n    data: Buffer.from(html, 'utf-8').toString('base64'),\n    mimeType: 'text/html',\n    fileName: `ecriture-${entry.id}.html`\n  }\n}}];"
+      },
+      "id": "b1a1a1a1-0016-4a11-8a11-000000000016",
+      "name": "Construire le visuel (HTML)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        820,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "={{ '/home/node/.n8n-files/ecriture-' + $json.entryId + '.html' }}",
+        "dataPropertyName": "data",
+        "options": {}
+      },
+      "id": "b1a1a1a1-0017-4a11-8a11-000000000017",
+      "name": "Sauvegarder le visuel",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        1040,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### Visuel de l'ecriture comptable\nCe noeud Code construit un tableau HTML (Compte / Libelle / Debit / Credit + total) a partir de la reponse de \"Ecriture comptable proposee\", puis le sauvegarde en fichier (/home/node/.n8n-files/ecriture-{id}.html) que tu peux ouvrir dans un navigateur.",
+        "height": 200,
+        "width": 340
+      },
+      "id": "b1a1a1a1-0018-4a11-8a11-000000000018",
+      "name": "Note - Visuel ecriture",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        820,
+        780
+      ]
+    },
+    {
+      "parameters": {
+        "content": "### Traitement en masse - dossier Downloads\n\nLe dossier Downloads de l'utilisateur est monte en lecture seule dans le conteneur n8n a /data/downloads (voir compose.yml de la stack n8n).\n\nLe motif */acture*.pdf cible les fichiers dont le nom contient acture (facture/Facture, insensible a la casse sans utiliser de classe de caracteres [Ff] : par defaut le noeud Read/Write Files traite [ ] comme des caracteres litteraux, pas comme du glob, donc [Ff] ne matchait aucun fichier).\n\n8 fichiers trouves sur les 49 PDF du dossier (qui contient aussi des cours, CV, releves...).\n\nPour elargir : */.pdf pour tous les PDF du dossier.",
+        "height": 320,
+        "width": 380
+      },
+      "id": "b1a1a1a1-0019-4a11-8a11-000000000019",
+      "name": "Note - Traitement en masse",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -1180,
+        -260
+      ]
+    }
+  ],
+  "connections": {
+    "Déclenchement manuel": {
+      "main": [
+        [
+          {
+            "node": "Configuration",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Configuration": {
+      "main": [
+        [
+          {
+            "node": "Connexion (JWT)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Connexion (JWT)": {
+      "main": [
+        [
+          {
+            "node": "Lire le fichier facture",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lire le fichier facture": {
+      "main": [
+        [
+          {
+            "node": "Upload facture",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload facture": {
+      "main": [
+        [
+          {
+            "node": "Attendre 2s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Attendre 2s": {
+      "main": [
+        [
+          {
+            "node": "Vérifier progression",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Vérifier progression": {
+      "main": [
+        [
+          {
+            "node": "Pipeline terminé ?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pipeline terminé ?": {
+      "main": [
+        [
+          {
+            "node": "Résultat OCR",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Entités extraites",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Écriture comptable proposée",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Attendre 2s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Résultat OCR": {
+      "main": [
+        [
+          {
+            "node": "Pipeline IA complet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Entités extraites": {
+      "main": [
+        [
+          {
+            "node": "Pipeline IA complet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Écriture comptable proposée": {
+      "main": [
+        [
+          {
+            "node": "Construire le visuel (HTML)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pipeline IA complet": {
+      "main": [
+        [
+          {
+            "node": "Apercu de la facture (visuel)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Construire le visuel (HTML)": {
+      "main": [
+        [
+          {
+            "node": "Sauvegarder le visuel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sauvegarder le visuel": {
+      "main": [
+        [
+          {
+            "node": "Pipeline IA complet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "instanceId": "compta-ia-pipeline-export"
+  }
+}

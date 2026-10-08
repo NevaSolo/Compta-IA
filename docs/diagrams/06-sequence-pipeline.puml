@@ -1,0 +1,70 @@
+@startuml sequence-pipeline
+!theme plain
+title Diagramme de sequence - Upload facture, pipeline IA, validation comptable
+
+skinparam shadowing false
+autonumber
+
+actor Comptable as user
+participant "Frontend\nReact" as front
+participant "InvoiceRouter\n(FastAPI)" as router
+participant "UploadInvoice\nUseCase" as ucUpload
+participant "Pipeline IA\n(BackgroundTask)" as pipeline
+participant "OCREngine\n(EasyOCR)" as ocr
+participant "EntityExtractor\n(Regex + spaCy)" as nlp
+participant "OperationClassifier\n(Sklearn/XGBoost)" as ml
+participant "RuleEngine\n(PCG malgache)" as rules
+participant "ValidateEntry\nUseCase" as ucValid
+database "MySQL" as db
+
+== Phase 1 : Upload ==
+user -> front : depose facture (PDF/JPG/PNG)
+front -> router : POST /upload-invoice\n(multipart + JWT)
+router -> ucUpload : execute(file, userId)
+ucUpload -> ucUpload : valide MIME + taille
+ucUpload -> db : INSERT Invoice (status=UPLOADED)
+ucUpload -> pipeline : lance traitement asynchrone
+router --> front : 202 Accepted {invoiceId}
+front -> front : polling GET /invoices/{id}\n(TanStack Query)
+
+== Phase 2 : Pipeline IA (asynchrone) ==
+pipeline -> pipeline : pretraitement image\n(OpenCV : deskew, binarisation)
+pipeline -> ocr : extractText(image, langues)
+ocr --> pipeline : texte brut + blocs + confiances
+pipeline -> db : INSERT OcrResult\nUPDATE status=OCR_DONE
+
+pipeline -> nlp : extractEntities(texteNettoye)
+nlp --> pipeline : entites {fournisseur, date,\nmontants HT/TVA/TTC, lignes}
+pipeline -> pipeline : controle arithmetique\nHT + TVA = TTC
+pipeline -> db : INSERT ExtractedEntity[]\nUPDATE status=ANALYZED
+
+pipeline -> ml : classify(features)
+ml --> pipeline : OperationType + probabilite
+
+pipeline -> rules : generateEntries(operationType,\nmontants, entites)
+rules -> db : SELECT comptes (plan comptable)
+rules --> pipeline : ecritures proposees\n(lignes debit/credit)
+pipeline -> ml : suggestAccounts(lignes)
+ml --> pipeline : comptes affines + confiances
+pipeline -> pipeline : BalanceValidator :\nverifie Debit == Credit
+pipeline -> pipeline : agrege score de confiance global
+pipeline -> db : INSERT JournalEntry (PROPOSED)\nUPDATE status=ENTRIES_PROPOSED
+
+== Phase 3 : Validation humaine ==
+front --> user : affiche facture + ecritures\nproposees + scores
+alt Le comptable corrige
+  user -> front : modifie compte / montant
+  front -> router : PUT /entries/{id}
+  router -> ucValid : correct(entryId, changes)
+  ucValid -> db : INSERT Correction[]\n(donnees d'apprentissage futures)
+  ucValid -> db : UPDATE JournalEntry (CORRECTED)
+end
+user -> front : clique "Valider"
+front -> router : POST /validate-entry/{id}
+router -> ucValid : validate(entryId, userId)
+ucValid -> ucValid : re-verifie Debit == Credit
+ucValid -> db : UPDATE JournalEntry (VALIDATED)\nINSERT AuditLog
+router --> front : 200 OK
+front --> user : ecriture enregistree
+
+@enduml

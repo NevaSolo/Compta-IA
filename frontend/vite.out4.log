@@ -1,0 +1,26 @@
+
+> compta-ia-frontend@1.0.0 dev
+> vite
+
+
+  VITE v6.4.3  ready in 748 ms
+
+  ➜  Local:   http://localhost:5173/
+  ➜  Network: use --host to expose
+15:29:25 [vite] (client) page reload src/types/index.ts
+15:32:42 [vite] (client) hmr update /src/App.tsx, /src/index.css
+15:32:50 [vite] (client) hmr update /src/App.tsx, /src/index.css
+15:32:56 [vite] (client) hmr update /src/context/UploadQueueContext.tsx, /src/index.css
+15:32:56 [vite] (client) hmr invalidate /src/context/UploadQueueContext.tsx Could not Fast Refresh ("useUploadQueue" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+15:32:56 [vite] (client) hmr update /src/App.tsx, /src/index.css, /src/pages/UploadPage.tsx
+15:33:02 [vite] (client) hmr update /src/context/UploadQueueContext.tsx, /src/index.css
+15:33:03 [vite] (client) hmr invalidate /src/context/UploadQueueContext.tsx Could not Fast Refresh ("useUploadQueue" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+15:33:03 [vite] (client) hmr update /src/App.tsx, /src/index.css, /src/pages/UploadPage.tsx
+15:33:09 [vite] (client) hmr update /src/context/UploadQueueContext.tsx, /src/index.css
+15:33:09 [vite] (client) hmr invalidate /src/context/UploadQueueContext.tsx Could not Fast Refresh ("useUploadQueue" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+15:33:09 [vite] (client) hmr update /src/App.tsx, /src/index.css, /src/pages/UploadPage.tsx
+15:33:21 [vite] (client) hmr update /src/pages/InvoiceDetailPage.tsx, /src/index.css
+15:33:26 [vite] (client) hmr update /src/pages/InvoiceDetailPage.tsx, /src/index.css
+15:33:36 [vite] (client) hmr update /src/pages/InvoiceDetailPage.tsx, /src/index.css
+15:33:42 [vite] (client) hmr update /src/pages/InvoiceDetailPage.tsx, /src/index.css
+15:33:49 [vite] (client) hmr update /src/pages/InvoiceDetailPage.tsx, /src/index.css

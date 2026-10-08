@@ -1,0 +1,134 @@
+@startuml mcd
+!theme plain
+title MCD - Modele Conceptuel de Donnees (notation entite-association)
+
+skinparam shadowing false
+hide circle
+hide methods
+
+entity "UTILISATEUR" as user {
+  * email
+  * nom_complet
+  * role
+  * mot_de_passe_hash
+  * actif
+}
+
+entity "FOURNISSEUR" as supplier {
+  * nom
+  * nom_normalise
+  o nif
+  o stat
+  o adresse
+}
+
+entity "FACTURE" as invoice {
+  * fichier_origine
+  * chemin_stockage
+  * type_mime
+  * statut
+  o langue
+  o numero_facture
+  o date_facture
+  o total_ht
+  o total_tva
+  o total_ttc
+  * devise
+}
+
+entity "RESULTAT_OCR" as ocr {
+  * moteur
+  * texte_brut
+  * confiance_moyenne
+  * blocs
+  * duree_ms
+}
+
+entity "ENTITE_EXTRAITE" as entity_ex {
+  * type_entite
+  * valeur_brute
+  o valeur_normalisee
+  * confiance
+  * methode_extraction
+}
+
+entity "CLASSIFICATION" as classif {
+  * type_operation
+  * probabilite
+  o distribution_probas
+}
+
+entity "VERSION_MODELE" as model {
+  * nom
+  * version
+  * algorithme
+  * chemin_artefact
+  o accuracy
+  o f1_score
+  * active
+}
+
+entity "COMPTE" as account {
+  * code
+  * intitule
+  * classe
+  o code_parent
+  * sens_normal
+}
+
+entity "REGLE_COMPTABLE" as rule {
+  * code
+  * type_operation
+  * description
+  * gabarit
+  * priorite
+}
+
+entity "ECRITURE" as entry {
+  * date_ecriture
+  * libelle
+  * statut
+  o score_confiance
+  o date_validation
+}
+
+entity "LIGNE_ECRITURE" as line {
+  * libelle
+  * debit
+  * credit
+  o confiance_compte
+  * suggere_par_ml
+}
+
+entity "CORRECTION" as correction {
+  * champ_corrige
+  * valeur_origine
+  * valeur_corrigee
+  * utilisee_entrainement
+}
+
+entity "JOURNAL_AUDIT" as audit {
+  * action
+  * type_entite
+  * id_entite
+  o valeur_avant
+  o valeur_apres
+}
+
+user ||--o{ invoice : "importe"
+supplier |o--o{ invoice : "emet"
+invoice ||--o| ocr : "produit"
+invoice ||--o{ entity_ex : "contient"
+invoice ||--o| classif : "est classee"
+classif }o--|| model : "produite par"
+invoice ||--o{ entry : "genere"
+entry ||--|{ line : "composee de (2..*)"
+line }o--|| account : "imputee sur"
+entry }o--o| rule : "appliquee par"
+entry ||--o{ correction : "corrigee via"
+user ||--o{ correction : "effectue"
+user |o--o{ entry : "valide"
+user |o--o{ audit : "declenche"
+supplier }o--o| account : "compte habituel"
+
+@enduml
