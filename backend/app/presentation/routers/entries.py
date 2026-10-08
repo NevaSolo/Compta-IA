@@ -15,8 +15,8 @@ from app.core.dependencies import get_current_user
 from app.domain.entities import JournalEntry, Role, User
 from app.infrastructure.db.database import get_db
 from app.infrastructure.db.repositories import (
-    MySQLAccountRepository, MySQLAuditRepository, MySQLEntryRepository,
-    MySQLInvoiceRepository,
+    MySQLAccountRepository, MySQLAuditRepository, MySQLCompanyRepository,
+    MySQLEntryRepository, MySQLInvoiceRepository,
 )
 from app.presentation.schemas import (
     CorrectEntryRequest, EntryLineOut, EntryOut, PaginatedEntries,
@@ -168,6 +168,15 @@ def export_csv(user: User = Depends(get_current_user), db: Session = Depends(get
         headers={"Content-Disposition": "attachment; filename=journal_achats.csv"})
 
 
+def _company_label(db: Session, company_id: int | None) -> str:
+    """Nom de l'entreprise affiché en tête du journal. Sans périmètre
+    (administrateur global), le journal couvre toutes les entreprises."""
+    if company_id is None:
+        return "Toutes les entreprises"
+    company = MySQLCompanyRepository(db).get_by_id(company_id)
+    return company.name if company else "—"
+
+
 def _format_amount(value: float) -> str:
     """Sans décimales si le montant est un nombre entier (convention du
     journal papier malgache), sinon deux décimales — toujours espace comme
@@ -213,6 +222,7 @@ def export_pdf(user: User = Depends(get_current_user), db: Session = Depends(get
     settings = get_settings()
     scope = None if user.role == Role.ADMIN else user.company_id
     rows = _pdf_journal_rows(db, scope)
+    company_label = _company_label(db, scope)
 
     HEADER_BG = colors.HexColor("#D9D9D9")
     ROW_ALT_BG = colors.HexColor("#F2F2F2")
@@ -250,7 +260,9 @@ def export_pdf(user: User = Depends(get_current_user), db: Session = Depends(get
     ]
 
     info_table = Table(
-        [["Entreprise", settings.company_name, "Période", periode],
+        [["Entreprise", Paragraph(xml_escape(company_label),
+                                      ParagraphStyle("CompanyCell", parent=cell_style,
+                                                     fontSize=9, leading=11)), "Période", periode],
          ["Journal", "ACH", "Devise", settings.default_currency]],
         colWidths=[2.6 * cm, 6.4 * cm, 2.6 * cm, 4.9 * cm])
     info_table.setStyle(TableStyle([

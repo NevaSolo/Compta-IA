@@ -2,6 +2,7 @@ import {
   createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode,
 } from "react";
 import { CheckCircle2, CircleDashed, Loader2, X, XCircle } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { getInvoice } from "@/services/invoices";
 import type { Invoice, PipelineStep } from "@/types";
 
@@ -44,6 +45,7 @@ function stepIndex(step: PipelineStep | null): number {
  * reste ouverte (fermeture manuelle) en cas d'échec pour garder l'erreur
  * lisible. */
 export function PipelineProgressProvider({ children }: { children: ReactNode }) {
+  const queryClient = useQueryClient();
   const [tracked, setTracked] = useState<Record<number, TrackedEntry>>({});
   const dismissTimers = useRef<Record<number, number>>({});
 
@@ -65,7 +67,14 @@ export function PipelineProgressProvider({ children }: { children: ReactNode }) 
     const poll = async () => {
       await Promise.all(activeIds.map(async (id) => {
         try {
-          const invoice = await getInvoice(id);
+          // Même clé que la page de détail : un seul appel réseau est émis
+          // même si les deux sondages tombent en même temps (requête en
+          // cours partagée) ou à moins de 1,5 s d'intervalle (cache frais).
+          const invoice = await queryClient.fetchQuery({
+            queryKey: ["invoice", id],
+            queryFn: () => getInvoice(id),
+            staleTime: POLL_MS - 500,
+          });
           if (cancelled) return;
           const finished = invoice.status === "ENTRIES_PROPOSED" || invoice.status === "ERROR";
           setTracked((prev) => (prev[id] ? { ...prev, [id]: { invoice, done: finished } } : prev));

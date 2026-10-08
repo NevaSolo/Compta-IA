@@ -124,6 +124,19 @@ class TestExports:
         assert response.headers["content-type"] == "application/pdf"
         assert response.content.startswith(b"%PDF")
 
+    def test_export_pdf_header_shows_the_users_company_name(
+            self, client, db_session, comptable_user, company, auth_headers,
+            minimal_chart_of_accounts):
+        import fitz  # PyMuPDF
+
+        entry = _create_proposed_entry(db_session, comptable_user, minimal_chart_of_accounts)
+        client.post(f"/api/entries/{entry.id}/validate", headers=auth_headers)
+
+        response = client.get("/api/entries/export/pdf", headers=auth_headers)
+        with fitz.open(stream=response.content, filetype="pdf") as pdf:
+            text = "".join(page.get_text() for page in pdf)
+        assert company.name in text
+
     def test_export_pdf_with_no_validated_entries_still_succeeds(self, client, auth_headers):
         """Aucune écriture validée : le PDF doit rester généré sans planter,
         avec un message plutôt qu'un tableau vide."""
