@@ -142,7 +142,7 @@ CREATE TABLE invoices (
 CREATE TABLE ocr_results (
   id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   invoice_id      BIGINT UNSIGNED NOT NULL,
-  engine          ENUM('EASYOCR','TESSERACT') NOT NULL,
+  engine          ENUM('EASYOCR','TESSERACT','PDF_TEXT') NOT NULL,
   raw_text        MEDIUMTEXT      NOT NULL,
   mean_confidence DECIMAL(5,4)    NOT NULL,
   blocks          JSON            NOT NULL,

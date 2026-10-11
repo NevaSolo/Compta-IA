@@ -21,6 +21,7 @@ from app.domain.rules import VATCalculator
 from app.infrastructure.ml.classifiers import ConstrainedAccountSuggester, load_active_classifier
 from app.infrastructure.nlp.extractor import detect_document_type, detect_language
 from app.infrastructure.ocr.engines import OcrOrchestrator
+from app.infrastructure.ocr.pdf_text import read_pdf_text_layer
 from app.infrastructure.ocr.preprocessing import pdf_to_images, preprocess_image
 from app.infrastructure.rules.rule_engine import RuleEngine, RuleEngineError
 
@@ -76,14 +77,22 @@ class ProcessInvoicePipelineUseCase:
         invoice.status = InvoiceStatus.PREPROCESSING
         invoice.current_step = PipelineStep.PREPROCESSING
         self.invoices.update(invoice)
-        image_paths = ([invoice.storage_path] if invoice.mime_type != "application/pdf"
-                       else pdf_to_images(invoice.storage_path))
-        prepared, _meta = preprocess_image(image_paths[0])  # page 1 (v1 mono-page)
+        # PDF numérique : le texte est déjà dans le fichier, avec ses
+        # coordonnées. On le lit directement (toutes les pages, sans
+        # rasterisation ni OCR) ; scans et photos suivent le chemin OCR.
+        text_layer = (read_pdf_text_layer(invoice.storage_path)
+                      if invoice.mime_type == "application/pdf" else None)
+        prepared = None
+        if text_layer is None:
+            image_paths = ([invoice.storage_path] if invoice.mime_type != "application/pdf"
+                           else pdf_to_images(invoice.storage_path))
+            prepared, _meta = preprocess_image(image_paths[0])  # page 1 (v1 mono-page)
 
         # --- 2. OCR avec fallback ------------------------------------------
         invoice.current_step = PipelineStep.OCR
         self.invoices.update(invoice)
-        ocr_result = self.ocr.run(prepared, self.settings.ocr_language_list)
+        ocr_result = (text_layer if text_layer is not None
+                      else self.ocr.run(prepared, self.settings.ocr_language_list))
         if ocr_result is None:
             invoice.status = InvoiceStatus.ERROR
             invoice.error_message = ("Facture illisible : confiance OCR insuffisante "

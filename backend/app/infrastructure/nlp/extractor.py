@@ -16,9 +16,12 @@ logger = logging.getLogger(__name__)
 # ----------------------------------------------------------- Ancres multilingues
 ANCHORS = {
     "TOTAL_TTC": [r"total\s*ttc", r"net\s*[àa]\s*payer", r"montant\s*ttc",
-                  r"amount\s*due", r"grand\s*total", r"totaly", r"total\s*$"],
+                  r"amount\s*due", r"grand\s*total", r"totaly", r"total\s*$",
+                  r"total\s*due", r"balance\s*due", r"total\s*payable",
+                  r"amount\s*payable", r"total\s*[àa]\s*payer"],
     "TOTAL_HT": [r"total\s*h\.?t", r"montant\s*h\.?t", r"sub\s*-?\s*total",
-                 r"total\s*hors\s*taxes?"],
+                 r"total\s*hors\s*taxes?", r"sous\s*-?\s*total", r"total\s*net",
+                 r"net\s*total", r"base\s*imposable"],
     "TOTAL_VAT": [r"t\.?v\.?a", r"\bvat\b", r"taxe"],
     "INVOICE_NUMBER": [r"facture\s*(n[°ºo]|num|#)", r"invoice\s*(no|#|number)",
                        r"fact\.?\s*n[°ºo]", r"faktiora", r"\bn[°ºo]?\s*:"],
@@ -27,7 +30,10 @@ ANCHORS = {
     "DATE": [r"\bdate\b", r"\bdaty\b", r"\ble\b\s*:"],
 }
 
-AMOUNT_RE = re.compile(r"(\d{1,3}(?:[ . ]\d{3})+(?:[.,]\d{1,2})?|\d+(?:[.,]\d{1,2})?)")
+# Séparateurs de milliers : espace, point, virgule (format anglo-saxon
+# « 115,123.75 »), espaces insécables. Sans la virgule, « 115,123.75 » se
+# lisait « 3.75 » : toutes les factures au format international échouaient.
+AMOUNT_RE = re.compile(r"(\d{1,3}(?:[ .,  ]\d{3})+(?:[.,]\d{1,2})?|\d+(?:[.,]\d{1,2})?)")
 DATE_RES = [
     re.compile(r"(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})"),
     re.compile(r"(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2})\b"),
@@ -42,7 +48,23 @@ MONTHS = {  # fr / en / mg
     "september": 9, "septambra": 9, "octobre": 10, "october": 10, "oktobra": 10,
     "novembre": 11, "november": 11, "novambra": 11, "décembre": 12,
     "decembre": 12, "december": 12, "desambra": 12,
+    # abréviations courantes (fr / en) : « 09 Oct 2026 », « 12 sept. 2026 »
+    "jan": 1, "janv": 1, "feb": 2, "fev": 2, "fév": 2, "févr": 2, "fevr": 2,
+    "mar": 3, "apr": 4, "avr": 4, "jun": 6, "juil": 7, "jul": 7, "aug": 8,
+    "sep": 9, "sept": 9, "oct": 10, "nov": 11, "dec": 12, "déc": 12,
 }
+# Date dont les composantes ont été séparées par l'OCR en plusieurs blocs
+# (« 17 / 08 » + « 2026 ») puis rejointes par un simple espace : séparateurs
+# optionnels, année à 4 chiffres obligatoire pour limiter les faux positifs.
+DATE_SPLIT_RE = re.compile(r"(?<!\d)(\d{1,2})\s*[/\-.]?\s*(\d{1,2})\s*[/\-.]?\s*(20\d{2})(?!\d)")
+TEXT_DATE_RE = re.compile(r"(?<!\d)(\d{1,2})\s+([A-Za-zÀ-ÿ]+)\.?\s+(\d{4})(?!\d)")
+# Mention d'exonération de TVA : « TVA non applicable, art. 293 B du CGI »,
+# « VAT exempt », « exonéré de TVA ». Le nombre qui l'accompagne (ici un
+# numéro d'article de loi) n'est PAS un montant de taxe : la TVA vaut 0.
+VAT_EXEMPT_RE = re.compile(
+    r"(tva|vat|taxe)[^.:;]{0,40}(non\s+applicable|exon[ée]r|exempt)"
+    r"|(non\s+applicable|exon[ée]r|exempt)[^.:;]{0,40}(tva|vat)"
+    r"|art(?:icle|\.)?\s*293\s*b", re.IGNORECASE)
 CURRENCY_RE = re.compile(r"\b(ariary|mga|ar|eur|€|usd|\$)\b", re.IGNORECASE)
 
 # Titres de document et en-têtes de colonne génériques (garde-fou pour
@@ -87,10 +109,22 @@ def normalize_amount(raw: str) -> str | None:
     return re.sub(r"[\s.,]", "", text) or None
 
 
+_CONFUSABLE_LETTERS = set("OolISB")  # lettres que l'OCR confond avec des chiffres
+
+
 def _fix_numeric_ocr_errors(text: str) -> str:
     """Corrections O→0, l/I→1, S→5, B→8 uniquement dans les tokens
-    majoritairement numériques (jamais dans le texte : noms propres)."""
+    majoritairement numériques (jamais dans le texte : noms propres).
+
+    Un préfixe alphabétique réel suivi d'un séparateur et de chiffres
+    (« INV-2026-8849 », « FAC-00045 ») est un code de pièce, pas un nombre
+    mal lu : le corriger donnait « 1NV-2026-8849 ». Le préfixe n'est
+    préservé que s'il contient une lettre non confondable avec un chiffre,
+    pour que « OO-123 » (deux zéros mal lus) reste corrigé."""
     def fix_token(token: str) -> str:
+        prefix = re.match(r"^([A-Za-z]{2,})[\-/_.]?\d", token)
+        if prefix and not set(prefix.group(1)) <= _CONFUSABLE_LETTERS:
+            return token
         digits = sum(ch.isdigit() for ch in token)
         if digits >= max(2, len(token) // 2):
             return (token.replace("O", "0").replace("o", "0")
@@ -102,6 +136,10 @@ def _fix_numeric_ocr_errors(text: str) -> str:
 
 def _block_center_y(block: OcrBlock) -> float:
     return sum(pt[1] for pt in block.bbox) / len(block.bbox)
+
+
+def _block_center_x(block: OcrBlock) -> float:
+    return sum(pt[0] for pt in block.bbox) / len(block.bbox)
 
 
 def _block_height(block: OcrBlock) -> float:
@@ -119,6 +157,38 @@ def _same_visual_line(a: OcrBlock, b: OcrBlock) -> bool:
 def _matches_any(text: str, patterns: list[str]) -> bool:
     lowered = text.lower()
     return any(re.search(p, lowered) for p in patterns)
+
+
+def _visual_lines(blocks: list[OcrBlock]) -> list[list[OcrBlock]]:
+    """Regroupe les blocs en lignes visuelles (de gauche à droite).
+
+    L'OCR découpe souvent une même ligne en plusieurs blocs (« 17 / 08 » puis
+    « 2026 » ; cellules d'un tableau) : les entités qui s'étalent sur
+    plusieurs blocs, comme une date, ne sont visibles qu'une fois la ligne
+    reconstituée."""
+    lines: list[list[OcrBlock]] = []
+    for block in sorted(blocks, key=_block_center_y):
+        if lines and _same_visual_line(lines[-1][0], block):
+            lines[-1].append(block)
+        else:
+            lines.append([block])
+    return [sorted(line, key=lambda b: b.bbox[0][0]) for line in lines]
+
+
+def _is_label_like(text: str) -> bool:
+    """Un libellé de total (« Total TTC », « VAT / Sales Tax (Reverse Charge
+    0%) ») est court. Une phrase de conditions générales qui contient le mot
+    « VAT » ou « total » n'est pas une ancre de montant : sur un document de
+    plusieurs pages, ces paragraphes produiraient des candidats parasites."""
+    return len(text) <= 70 and len(text.split()) <= 12
+
+
+def _looks_like_money(raw: str) -> bool:
+    """Distingue un montant d'un entier quelconque (fin d'IBAN, quantité,
+    numéro de page) : décimales, séparateur de milliers, ou au moins 4 chiffres."""
+    digits = re.sub(r"\D", "", raw)
+    return bool(re.search(r"[.,]\d{1,2}$", raw.strip()) or re.search(r"\d[ ., ]\d{3}", raw)
+                or len(digits) >= 4)
 
 
 class HybridExtractor(EntityExtractor):
@@ -149,25 +219,42 @@ class HybridExtractor(EntityExtractor):
 
         for entity_type in ("TOTAL_TTC", "TOTAL_HT", "TOTAL_VAT"):
             own_candidates = []
-            aligned_candidates = []
+            exempt_anchors = []    # mentions « TVA non applicable » (TVA seulement)
+            right_candidates = []  # montant à droite du libellé : cas normal
+            left_candidates = []   # à gauche : n'est retenu que s'il ressemble à un montant
             for anchor in blocks:
+                if not _is_label_like(anchor.text):
+                    continue
                 if not _matches_any(anchor.text, ANCHORS[entity_type]):
                     continue
                 # 1) montant dans le bloc ancre lui-même — on exclut les
                 # nombres suivis de '%' : pour l'ancre TVA, "20%" est un taux,
                 # pas le montant de la taxe (bug corrigé après tests unitaires).
-                own = [m for m in AMOUNT_RE.findall(anchor.text)
-                       if not re.search(re.escape(m) + r"\s*%", anchor.text)]
+                is_exempt = entity_type == "TOTAL_VAT" and VAT_EXEMPT_RE.search(anchor.text)
+                if is_exempt:
+                    exempt_anchors.append(anchor)
+                own = [] if is_exempt else [
+                    m for m in AMOUNT_RE.findall(anchor.text)
+                    if not re.search(re.escape(m) + r"\s*%", anchor.text)]
                 if own:
                     own_candidates.append((own[-1], anchor, anchor.confidence))
                 # 2) montant dans un bloc aligné horizontalement (même ligne)
                 for other in blocks:
                     if other is anchor or not _same_visual_line(anchor, other):
                         continue
-                    amounts = AMOUNT_RE.findall(other.text)
-                    if amounts:
-                        aligned_candidates.append((amounts[-1],
-                                           other, min(anchor.confidence, other.confidence)))
+                    amounts = [m for m in AMOUNT_RE.findall(other.text)
+                               if not re.search(re.escape(m) + r"\s*%", other.text)]
+                    if not amounts:
+                        continue
+                    candidate = (amounts[-1], other, min(anchor.confidence, other.confidence))
+                    if _block_center_x(other) > _block_center_x(anchor):
+                        right_candidates.append(candidate)
+                    elif _looks_like_money(amounts[-1]):
+                        # Bug réel : sur une facture à deux colonnes, « Net
+                        # Subtotal » (colonne de droite) partageait sa ligne avec
+                        # un IBAN (colonne de gauche) dont le dernier chiffre,
+                        # « 2 », était pris pour le montant HT.
+                        left_candidates.append(candidate)
             # Priorité systématique au montant ALIGNÉ (ligne voisine) sur un
             # nombre trouvé dans le bloc-ancre lui-même : le second n'est
             # utilisé qu'en repli. Bug réel corrigé : l'OCR peut corrompre
@@ -175,7 +262,15 @@ class HybridExtractor(EntityExtractor):
             # ("209" si le "%" est lu comme un "9"), sans le signe "%" que le
             # garde-fou ci-dessus cherche — cette valeur parasite l'emportait
             # alors à tort sur le véritable montant aligné.
-            candidates = aligned_candidates or own_candidates
+            candidates = right_candidates or left_candidates or own_candidates
+            if not candidates and exempt_anchors:
+                # Aucun montant de taxe, mais une mention d'exonération : TVA = 0
+                # (et non « absente », ce qui ferait appliquer le taux par défaut).
+                found["TOTAL_VAT"] = ExtractedEntity(
+                    entity_type="TOTAL_VAT", raw_value="0", normalized_value="0.00",
+                    confidence=round(exempt_anchors[0].confidence, 4),
+                    method=ExtractionMethod.REGEX,
+                    source_block={"bbox": exempt_anchors[0].bbox, "text": exempt_anchors[0].text})
             if candidates:
                 # heuristique : pour le TTC, préférer le candidat le plus bas sur la page
                 raw, block, conf = max(
@@ -227,24 +322,36 @@ class HybridExtractor(EntityExtractor):
 
     # -------------------------------------------------------------- Date
     def _extract_date(self, blocks: list[OcrBlock]) -> list[ExtractedEntity]:
-        candidates: list[tuple[datetime, OcrBlock, bool]] = []
-        for block in blocks:
+        candidates: list[tuple[datetime, OcrBlock, bool, str]] = []
+        # Unités de recherche : chaque bloc, plus chaque ligne visuelle
+        # reconstituée (une date découpée par l'OCR en « 17 / 08 » + « 2026 »
+        # n'existe dans aucun bloc pris isolément).
+        units = list(blocks)
+        for line in _visual_lines(blocks):
+            if len(line) > 1:
+                xs = [pt[0] for b in line for pt in b.bbox]
+                ys = [pt[1] for b in line for pt in b.bbox]
+                units.append(OcrBlock(
+                    text=" ".join(b.text for b in line),
+                    bbox=[[min(xs), min(ys)], [max(xs), min(ys)], [max(xs), max(ys)], [min(xs), max(ys)]],
+                    confidence=min(b.confidence for b in line)))
+        for block in units:
             near_anchor = _matches_any(block.text, ANCHORS["DATE"])
-            for regex in DATE_RES:
+            for regex in DATE_RES + [DATE_SPLIT_RE]:
                 for match in regex.finditer(block.text):
                     parsed = self._parse_date(match)
                     if parsed:
-                        candidates.append((parsed, block, near_anchor))
-            # dates textuelles : « 15 janvier 2026 »
-            text_match = re.search(r"(\d{1,2})\s+([a-zA-Zéûôà]+)\s+(\d{4})", block.text)
-            if text_match and text_match.group(2).lower() in MONTHS:
+                        candidates.append((parsed, block, near_anchor, match.group(0)))
+            # dates textuelles : « 15 janvier 2026 », « 09 Oct 2026 », « 12 sept. 2026 »
+            for text_match in TEXT_DATE_RE.finditer(block.text):
+                month = MONTHS.get(text_match.group(2).lower())
+                if month is None:
+                    continue
                 try:
-                    parsed = datetime(int(text_match.group(3)),
-                                      MONTHS[text_match.group(2).lower()],
-                                      int(text_match.group(1)))
-                    candidates.append((parsed, block, near_anchor))
+                    parsed = datetime(int(text_match.group(3)), month, int(text_match.group(1)))
                 except ValueError:
-                    pass
+                    continue
+                candidates.append((parsed, block, near_anchor, text_match.group(0)))
         if not candidates:
             return []
         # plausibilité ± 2 ans, priorité aux dates proches d'une ancre, sinon la plus ancienne
@@ -252,7 +359,7 @@ class HybridExtractor(EntityExtractor):
         plausible = [c for c in candidates if abs((c[0] - now).days) < 730] or candidates
         anchored = [c for c in plausible if c[2]]
         best = min(anchored or plausible, key=lambda c: c[0])
-        return [ExtractedEntity(entity_type="INVOICE_DATE", raw_value=best[1].text,
+        return [ExtractedEntity(entity_type="INVOICE_DATE", raw_value=best[3],
                                 normalized_value=best[0].strftime("%Y-%m-%d"),
                                 confidence=round(best[1].confidence, 4),
                                 method=ExtractionMethod.REGEX,

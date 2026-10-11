@@ -128,3 +128,85 @@ class TestHybridExtractorDate:
         date_entity = next((e for e in entities if e.entity_type == "INVOICE_DATE"), None)
         assert date_entity is not None
         assert date_entity.normalized_value == "2026-01-15"
+
+
+class TestInternationalAndComplexLayouts:
+    """Cas relevés sur une facture complexe (fournisseur étranger, deux
+    colonnes, format anglo-saxon, pas de ligne « Total TTC ») et sur le corpus
+    de test : chacun reproduit un défaut réel de l'extracteur."""
+
+    def setup_method(self):
+        self.extractor = HybridExtractor(use_spacy=False)
+
+    def _extract(self, *blocks):
+        ocr = OcrResult(engine="PDF_TEXT", raw_text="", mean_confidence=0.99, blocks=list(blocks))
+        return {e.entity_type: e for e in self.extractor.extract(ocr, language="en")}
+
+    def test_amount_with_comma_thousands_and_dot_decimals(self):
+        # « 115,123.75 » se lisait « 3.75 » (la virgule n'était pas un séparateur de milliers)
+        found = self._extract(block("Net Services Subtotal:", x=400, y=100),
+                              block("€115,123.75", x=520, y=100))
+        assert found["TOTAL_HT"].normalized_value == "115123.75"
+
+    def test_amount_is_not_taken_from_a_neighbouring_column_on_the_left(self):
+        # L'IBAN (colonne de gauche) partage la ligne visuelle du sous-total :
+        # son dernier chiffre était retenu comme montant HT.
+        found = self._extract(block("IBAN (EUR): CH93 0023 0230 4928 1190 2", x=20, y=100, w=250),
+                              block("Net Services Subtotal:", x=400, y=100),
+                              block("€115,123.75", x=520, y=100))
+        assert found["TOTAL_HT"].normalized_value == "115123.75"
+
+    def test_left_neighbour_is_ignored_even_without_any_amount_on_the_right(self):
+        found = self._extract(block("IBAN (EUR): CH93 0023 0230 4928 1190 2", x=20, y=100, w=250),
+                              block("Net Services Subtotal:", x=400, y=100))
+        assert "TOTAL_HT" not in found
+
+    def test_long_sentence_mentioning_vat_is_not_an_amount_anchor(self):
+        found = self._extract(block(
+            "1. Reverse Charge & Tax Compliance: Cross-border supply of services within the European "
+            "Union is subject to the VAT Act 1994 and EU Council Directive 2006/112/EC", x=20, y=300, w=500))
+        assert "TOTAL_VAT" not in found
+
+    def test_vat_exemption_mention_gives_zero_vat_not_the_law_article_number(self):
+        # « art. 293 B » : le 293 était pris pour le montant de la TVA
+        found = self._extract(block("Total", x=400, y=100), block("920.00 €", x=480, y=100),
+                              block("TVA non applicable, art. 293 B du CGI.", x=20, y=140, w=300))
+        assert found["TOTAL_VAT"].normalized_value == "0.00"
+        assert found["TOTAL_TTC"].normalized_value == "920.00"
+
+    def test_date_split_across_ocr_blocks(self):
+        # « 17 / 08 » + « 2026 » : deux blocs, la date n'existait dans aucun
+        found = self._extract(block("Date de facture", x=20, y=100),
+                              block("17 / 08", x=200, y=100), block("2026", x=260, y=100))
+        assert found["INVOICE_DATE"].normalized_value == "2026-08-17"
+
+    def test_date_split_in_three_blocks_without_separators(self):
+        found = self._extract(block("Date d'échéance", x=20, y=100),
+                              block("31", x=200, y=100), block("08", x=230, y=100),
+                              block("2026", x=260, y=100))
+        assert found["INVOICE_DATE"].normalized_value == "2026-08-31"
+
+    def test_abbreviated_month_name(self):
+        found = self._extract(block("Issue Date:", x=20, y=100), block("09 Oct 2026", x=200, y=100))
+        assert found["INVOICE_DATE"].normalized_value == "2026-10-09"
+        assert found["INVOICE_DATE"].raw_value == "09 Oct 2026"
+
+    def test_registration_number_is_not_preferred_to_the_anchored_invoice_date(self):
+        found = self._extract(block("Date", x=20, y=100), block("2026-08-17", x=200, y=100),
+                              block("R.C.S:2026-08-01", x=20, y=400))
+        assert found["INVOICE_DATE"].normalized_value == "2026-08-17"
+
+    def test_alphabetic_prefix_of_an_invoice_code_is_not_rewritten_as_digits(self):
+        # « INV-2026-8849 » devenait « 1NV-2026-8849 »
+        assert _fix_numeric_ocr_errors("INV-2026-8849") == "INV-2026-8849"
+        assert _fix_numeric_ocr_errors("FAC-2026-00045") == "FAC-2026-00045"
+
+    def test_zero_letters_misread_in_a_numeric_token_are_still_fixed(self):
+        assert _fix_numeric_ocr_errors("OO-123") == "00-123"
+        assert _fix_numeric_ocr_errors("1O0") == "100"
+
+    def test_bank_account_number_on_the_total_line_is_not_the_total(self):
+        # Corpus : « 12345678901 » (RIB, colonne de gauche) lu comme TTC
+        found = self._extract(block("00001 00001 12345678901", x=20, y=100, w=200),
+                              block("TOTAL TTC", x=400, y=100), block("9 000 000", x=520, y=100))
+        assert found["TOTAL_TTC"].normalized_value == "9000000"

@@ -108,7 +108,7 @@ class OcrResultModel(Base):
     id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True)
     invoice_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("invoices.id", ondelete="CASCADE"), unique=True)
-    engine: Mapped[str] = mapped_column(Enum("EASYOCR", "TESSERACT"))
+    engine: Mapped[str] = mapped_column(Enum("EASYOCR", "TESSERACT", "PDF_TEXT"))
     raw_text: Mapped[str] = mapped_column(Text)
     mean_confidence: Mapped[float] = mapped_column(Numeric(5, 4))
     blocks: Mapped[dict] = mapped_column(JSON)

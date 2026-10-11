@@ -144,3 +144,17 @@ l'IP du serveur au préalable.
   relancer.
 - Les sauvegardes ne sont pas automatiques par défaut — voir la section
   ci-dessus, à planifier vous-même (cron).
+
+## Mettre à jour une base existante (migrations)
+
+`database/schema.sql` n'est exécuté qu'au **tout premier démarrage** du conteneur
+MySQL (volume vide). Pour une base déjà en service, les évolutions du schéma sont
+dans `database/migrations/` et s'appliquent à la main, une seule fois, dans l'ordre :
+
+```bash
+docker compose exec -T db mysql --default-character-set=utf8mb4 -uroot -p"$MYSQL_ROOT_PASSWORD" \
+  compta_ia_db < database/migrations/001_ocr_engine_pdf_text.sql
+```
+
+`001` ajoute le moteur `PDF_TEXT` (lecture directe du texte des PDF numériques) :
+sans lui, le traitement d'un PDF numérique échoue à l'enregistrement du résultat de lecture.
