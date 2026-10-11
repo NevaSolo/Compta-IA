@@ -256,6 +256,15 @@ class TestSeveralCompetingTotals:
         assert found["DEPOSIT_PAID"].normalized_value == "5000.00"
         assert found["EARLY_PAYMENT_DISCOUNT"].normalized_value == "842.08"  # pas 41 261,95
 
+    def test_net_to_pay_is_reported_as_information_and_is_the_unconditional_one(self):
+        found = self._by_type(self._helios())
+        assert found["NET_TO_PAY"].normalized_value == "42104.03"  # ni 47 104,03 ni 41 261,95
+
+    def test_net_to_pay_ignores_a_discounted_net(self):
+        ocr = OcrResult(engine="PDF_TEXT", raw_text="", mean_confidence=0.99, blocks=[
+            block("Net à payer avec escompte", x=400, y=100, w=180), block("990,00", x=620, y=100)])
+        assert "NET_TO_PAY" not in self._by_type(ocr)
+
     def test_the_arithmetic_picks_the_consistent_total_when_labels_rank_equally(self):
         # Deux libellés de même rang : celui qui égale HT + TVA l'emporte,
         # même s'il est plus haut sur la page.

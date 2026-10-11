@@ -95,6 +95,11 @@ TOLERANCE = Decimal("0.02")  # écart d'arrondi toléré entre HT + TVA et TTC
 INFO_ANCHORS = {
     "DEPOSIT_PAID": r"acompte|deposit|advance\s*payment",
     "EARLY_PAYMENT_DISCOUNT": r"escompte|early\s*payment\s*discount",
+    "NET_TO_PAY": r"net\s*[àa]\s*payer|reste\s*[àa]\s*payer|amount\s*due|balance\s*due|total\s*due|net\s*payable",
+}
+# Un « net à payer » assorti d'un escompte est conditionnel : on ne le retient pas.
+INFO_EXCLUDED_ANCHORS = {
+    "NET_TO_PAY": re.compile(r"escompte|early\s*payment|prompt\s*payment|rebate", re.IGNORECASE),
 }
 
 CURRENCY_RE = re.compile(r"(?<![A-Za-z])(ariary|mga|ar|eur|usd|gbp|chf)(?![A-Za-z])|(€|\$|£)", re.IGNORECASE)
@@ -380,6 +385,9 @@ class HybridExtractor(EntityExtractor):
             entity = None
             for anchor in blocks:
                 if entity or not (_is_label_like(anchor.text) and re.search(pattern, anchor.text.lower())):
+                    continue
+                excluded = INFO_EXCLUDED_ANCHORS.get(entity_type)
+                if excluded and excluded.search(anchor.text):
                     continue
                 for other in blocks:
                     if other is anchor or not _same_visual_line(anchor, other):

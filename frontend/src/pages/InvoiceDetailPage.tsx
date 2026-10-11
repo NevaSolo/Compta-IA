@@ -122,7 +122,7 @@ export function InvoiceDetailPage() {
             )}
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="grid grid-cols-2 gap-2 sm:flex">
           <button
             onClick={() => reprocessMutation.mutate()}
             disabled={reprocessMutation.isPending || PIPELINE_RUNNING_STATUSES.has(invoice.status)}
@@ -162,14 +162,18 @@ export function InvoiceDetailPage() {
       )}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        {/* Visualisation de la facture source */}
-        <div className="card p-4">
+        {/* Visualisation de la facture source (après les données sur mobile) */}
+        <div className="card order-2 p-4 lg:order-1">
           <h2 className="mb-3 font-semibold text-slate-800">Facture source</h2>
           {sourceFile.isLoading && <p className="text-sm text-slate-400">Chargement du fichier…</p>}
           {sourceFile.isError && <p className="text-sm text-red-600">Impossible de charger le fichier source.</p>}
           {sourceFile.url && (
             invoice.original_filename.toLowerCase().endsWith(".pdf") ? (
-              <iframe src={sourceFile.url} className="h-[600px] w-full rounded-md" title="Facture PDF" />
+              <>
+                <iframe src={sourceFile.url} className="h-[60vh] w-full rounded-md lg:h-[600px]" title="Facture PDF" />
+                <a href={sourceFile.url} target="_blank" rel="noreferrer"
+                   className="btn-secondary mt-3 w-full lg:hidden">Ouvrir le PDF en plein écran</a>
+              </>
             ) : (
               <img src={sourceFile.url} alt="Facture" className="max-h-[600px] w-full rounded-md object-contain" />
             )
@@ -177,12 +181,12 @@ export function InvoiceDetailPage() {
         </div>
 
         {/* Données extraites + OCR */}
-        <div className="space-y-4">
+        <div className="order-1 space-y-4 lg:order-2">
           <div className="card p-4">
             <h2 className="mb-3 font-semibold text-slate-800">Données extraites</h2>
-            <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+            <dl className="grid grid-cols-[auto,1fr] gap-x-4 gap-y-2 text-sm">
               <dt className="text-slate-500">Fournisseur</dt>
-              <dd className="font-medium">{invoice.supplier_name ?? "—"}</dd>
+              <dd className="break-words text-right font-medium sm:text-left">{invoice.supplier_name ?? "—"}</dd>
               <dt className="text-slate-500">N° facture</dt>
               <dd className="font-medium">{invoice.invoice_number ?? "—"}</dd>
               <dt className="text-slate-500">Date</dt>
@@ -197,12 +201,16 @@ export function InvoiceDetailPage() {
               <dd className="font-medium">{invoice.language ?? "—"}</dd>
             </dl>
 
+            <PaymentInfo
+              entities={entitiesQuery.data ?? []} totalTtc={invoice.total_ttc} currency={invoice.currency}
+            />
+
             {entitiesQuery.data && entitiesQuery.data.length > 0 && (
               <details className="mt-3 text-sm">
                 <summary className="cursor-pointer text-brand-700">
                   Détail des entités extraites ({entitiesQuery.data.length})
                 </summary>
-                <table className="mt-2 w-full text-xs">
+                <div className="overflow-x-auto"><table className="mt-2 w-full text-xs">
                   <thead className="text-left text-slate-400">
                     <tr><th>Type</th><th>Valeur</th><th>Méthode</th><th>Confiance</th></tr>
                   </thead>
@@ -216,7 +224,7 @@ export function InvoiceDetailPage() {
                       </tr>
                     ))}
                   </tbody>
-                </table>
+                </table></div>
               </details>
             )}
           </div>
@@ -309,7 +317,7 @@ function EntryPanel({
 
   return (
     <div className="card p-4">
-      <div className="mb-3 flex items-center justify-between">
+      <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <h2 className="font-semibold text-slate-800">
           Écriture proposée — {entry.label} ({entry.entry_date})
         </h2>
@@ -319,7 +327,58 @@ function EntryPanel({
         </div>
       </div>
 
-      <div className="overflow-x-auto">
+      <ul className="space-y-3 md:hidden">
+        {lines.map((line, i) => (
+          <li key={line.id ?? i} className="space-y-2 rounded-lg border border-slate-200 p-3">
+            {readOnly ? (
+              <>
+                <p className="font-mono text-sm text-slate-700">{line.account_code}</p>
+                <p className="text-sm text-slate-600">{line.label}</p>
+                <div className="flex justify-between text-sm tabular-nums">
+                  <span>Débit : {line.debit}</span><span>Crédit : {line.credit}</span>
+                </div>
+              </>
+            ) : (
+              <>
+                <select
+                  value={line.account_code} aria-label="Compte"
+                  onChange={(e) => updateLine(i, "account_code", e.target.value)}
+                  className="input"
+                >
+                  {!accounts.some((a) => a.code === line.account_code) && (
+                    <option value={line.account_code}>{line.account_code}</option>
+                  )}
+                  {accounts.map((a) => <option key={a.code} value={a.code}>{a.code} — {a.label}</option>)}
+                </select>
+                <input
+                  value={line.label} aria-label="Libellé"
+                  onChange={(e) => updateLine(i, "label", e.target.value)} className="input"
+                />
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="text-xs text-slate-500">Débit
+                    <input value={line.debit} inputMode="decimal"
+                           onChange={(e) => updateLine(i, "debit", e.target.value)}
+                           className="input mt-1 text-right" />
+                  </label>
+                  <label className="text-xs text-slate-500">Crédit
+                    <input value={line.credit} inputMode="decimal"
+                           onChange={(e) => updateLine(i, "credit", e.target.value)}
+                           className="input mt-1 text-right" />
+                  </label>
+                </div>
+              </>
+            )}
+          </li>
+        ))}
+        <li className="flex justify-between px-1 text-sm font-semibold tabular-nums">
+          <span>Total</span>
+          <span className={isBalanced ? "" : "text-red-600"}>
+            {totalDebit.toFixed(2)} / {totalCredit.toFixed(2)}
+          </span>
+        </li>
+      </ul>
+
+      <div className="hidden overflow-x-auto md:block">
       <table className="w-full text-sm">
         <thead className="text-left text-slate-500">
           <tr>
@@ -406,7 +465,7 @@ function EntryPanel({
       )}
 
       {!readOnly && (
-        <div className="mt-4 flex flex-wrap justify-end gap-2">
+        <div className="mt-4 grid gap-2 sm:flex sm:flex-wrap sm:justify-end">
           <button
             onClick={saveCorrections} disabled={!dirty || correctMutation.isPending}
             className="btn-secondary"
@@ -417,6 +476,55 @@ function EntryPanel({
             className="btn-success"
           >Valider définitivement</button>
         </div>
+      )}
+    </div>
+  );
+}
+
+const INFO_LABELS: Record<string, string> = {
+  DEPOSIT_PAID: "Acompte déjà versé",
+  NET_TO_PAY: "Net à payer",
+  EARLY_PAYMENT_DISCOUNT: "Escompte possible",
+};
+
+/** Montants portés à titre d'information (jamais dans l'écriture) : l'acompte
+ * a déjà été comptabilisé à son versement, le net à payer n'est qu'un solde. */
+function PaymentInfo({
+  entities, totalTtc, currency,
+}: { entities: { entity_type: string; normalized_value: string | null; raw_value: string }[];
+     totalTtc: string | null; currency: string }) {
+  const value = (type: string) => entities.find((e) => e.entity_type === type)?.normalized_value ?? null;
+  const rows = Object.keys(INFO_LABELS)
+    .map((type) => ({ type, amount: value(type) }))
+    .filter((r) => r.amount !== null);
+  if (rows.length === 0) return null;
+
+  const deposit = value("DEPOSIT_PAID");
+  const net = value("NET_TO_PAY");
+  const ttc = totalTtc !== null ? Number(totalTtc) : NaN;
+  const checkable = net !== null && !Number.isNaN(ttc);
+  const expected = ttc - (deposit !== null ? Number(deposit) : 0);
+  const coherent = checkable && Math.abs(expected - Number(net)) < 0.02;
+
+  return (
+    <div className="mt-3 rounded-md bg-slate-50 p-3 text-sm">
+      <p className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-400">
+        Informations de paiement (hors écriture)
+      </p>
+      <dl className="grid grid-cols-[auto,1fr] gap-x-4 gap-y-1">
+        {rows.map((r) => (
+          <div key={r.type} className="contents">
+            <dt className="text-slate-500">{INFO_LABELS[r.type]}</dt>
+            <dd className="text-right font-medium tabular-nums sm:text-left">{r.amount} {currency}</dd>
+          </div>
+        ))}
+      </dl>
+      {checkable && (
+        <p className={`mt-2 text-xs ${coherent ? "text-emerald-700" : "text-amber-700"}`}>
+          {coherent
+            ? "Cohérent : TTC − acompte = net à payer."
+            : `Écart : TTC − acompte = ${expected.toFixed(2)}, mais le net à payer lu est ${net}. À vérifier.`}
+        </p>
       )}
     </div>
   );
