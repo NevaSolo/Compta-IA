@@ -6,7 +6,12 @@ body {
   @apply bg-slate-50 text-slate-900 antialiased;
   -webkit-tap-highlight-color: transparent;
   overscroll-behavior-y: none;
+  /* Garde-fou : aucun élément ne doit élargir la page. Sur mobile, un seul
+     élément qui dépasse fait « dézoomer » le navigateur et laisse une bande
+     vide à droite, avec une barre du bas plus large que le contenu. */
+  overflow-x: hidden;
 }
+#root { min-width: 0; max-width: 100vw; }
 
 /* Sur écran tactile : cibles ≥ 44 px (recommandation Apple/Google) et champs
    à 16 px pour éviter le zoom automatique d'iOS au focus. */

@@ -100,7 +100,7 @@ export function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:gap-4">
-        <div className="card p-4 sm:p-5">
+        <div className="card min-w-0 p-4 sm:p-5">
           <p className="text-sm text-slate-500">Taux de validation sans correction</p>
           <p className="mt-1 text-2xl font-bold text-brand-700">
             {data.validated_without_correction_rate !== null
@@ -111,7 +111,7 @@ export function DashboardPage() {
             Indicateur central du mémoire : progression au fil des validations.
           </p>
         </div>
-        <div className="card p-4 sm:p-5">
+        <div className="card min-w-0 p-4 sm:p-5">
           <p className="text-sm text-slate-500">Score de confiance moyen</p>
           <p className="mt-1 text-2xl font-bold text-brand-700">
             {data.average_confidence !== null
@@ -122,7 +122,7 @@ export function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <div className="card p-4 sm:p-5">
+        <div className="card min-w-0 p-4 sm:p-5">
           <h2 className="mb-3 font-semibold text-slate-800">Répartition par type d'opération</h2>
           {operationData.length === 0 ? (
             <EmptyState icon={PieChartIcon} title="Pas encore de facture classifiée" />
@@ -140,7 +140,7 @@ export function DashboardPage() {
           )}
         </div>
 
-        <div className="card p-4 sm:p-5">
+        <div className="card min-w-0 p-4 sm:p-5">
           <h2 className="mb-3 font-semibold text-slate-800">Volume mensuel (6 derniers mois)</h2>
           {monthlyData.length === 0 ? (
             <EmptyState icon={TrendingUp} title="Pas encore de données mensuelles" />
