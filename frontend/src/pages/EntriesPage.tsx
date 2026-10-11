@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import { listEntries, validateEntriesBatch } from "@/services/entries";
 import { CheckCheck, Receipt } from "lucide-react";
 import { apiErrorMessage } from "@/services/api";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { useToast } from "@/context/ToastContext";
 import { ConfidenceBadge } from "@/components/ConfidenceBadge";
 import { ExportButtons } from "@/components/ExportButtons";
@@ -49,6 +50,7 @@ export function EntriesPage() {
   const queryClient = useQueryClient();
   const { notify } = useToast();
   const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [confirming, setConfirming] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ["entries", status, page],
@@ -65,11 +67,12 @@ export function EntriesPage() {
         notify("error", `${result.validated} validée(s), ${result.failed} refusée(s) : ${first?.error ?? "erreur"}`);
       }
       setSelected(new Set());
+      setConfirming(false);
       for (const key of ["entries", "invoices", "dashboard"]) {
         queryClient.invalidateQueries({ queryKey: [key] });
       }
     },
-    onError: (err) => notify("error", apiErrorMessage(err)),
+    onError: (err) => { setConfirming(false); notify("error", apiErrorMessage(err)); },
   });
 
   const items = data?.items ?? [];
@@ -85,12 +88,6 @@ export function EntriesPage() {
   }
   function toggleReliable() {
     setSelected(allReliableSelected ? new Set() : new Set(reliableIds));
-  }
-  function validateSelected() {
-    const count = selected.size;
-    if (window.confirm(`Valider définitivement ${count} écriture(s) ? Cette action est irréversible.`)) {
-      batchMutation.mutate([...selected]);
-    }
   }
   function changeFilter(value: string) {
     setStatus(value); setPage(1); setSelected(new Set());
@@ -236,13 +233,24 @@ export function EntriesPage() {
           <div className="flex gap-2">
             <button type="button" onClick={() => setSelected(new Set())}
                     className="btn rounded-md px-3 text-slate-200 hover:bg-slate-800">Annuler</button>
-            <button type="button" onClick={validateSelected} disabled={batchMutation.isPending}
+            <button type="button" onClick={() => setConfirming(true)} disabled={batchMutation.isPending}
                     className="btn-success">
               {batchMutation.isPending ? "Validation…" : "Valider"}
             </button>
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={confirming} tone="success" loading={batchMutation.isPending}
+        title={`Valider ${selected.size} écriture(s) ?`}
+        confirmLabel="Valider définitivement"
+        onCancel={() => setConfirming(false)}
+        onConfirm={() => batchMutation.mutate([...selected])}
+      >
+        Une écriture validée ne peut plus être modifiée. Chaque écriture est contrôlée
+        (équilibre débit = crédit) ; celles qui échouent restent à vérifier.
+      </ConfirmDialog>
 
       {data && data.total > size && (
         <div className="flex items-center justify-between text-sm text-slate-600">
