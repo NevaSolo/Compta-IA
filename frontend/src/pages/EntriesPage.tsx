@@ -49,12 +49,12 @@ export function EntriesPage() {
     <div className="space-y-4">
       <PageHeader title="Écritures comptables" actions={<ExportButtons />} />
 
-      <div className="flex flex-wrap gap-2">
+      <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] md:mx-0 md:flex-wrap md:px-0">
         {STATUS_FILTERS.map((filter) => (
           <button
             key={filter.value}
             onClick={() => { setStatus(filter.value); setPage(1); }}
-            className={`rounded-full px-3 py-1 text-sm transition-colors ${
+            className={`chip ${
               status === filter.value
                 ? "bg-brand-600 text-white shadow-sm"
                 : "bg-white text-slate-600 border border-slate-300 hover:bg-slate-50"
@@ -75,8 +75,8 @@ export function EntriesPage() {
 
         {data?.items.map((entry) => (
           <div key={entry.id} className="card overflow-hidden">
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 bg-slate-50 px-5 py-3">
-              <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 bg-slate-50 px-4 py-3 md:px-5">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                 <Link to={`/factures/${entry.invoice_id}`} className="font-medium text-brand-700 hover:underline">
                   {entry.label}
                 </Link>
@@ -91,7 +91,29 @@ export function EntriesPage() {
               </div>
             </div>
 
-            <div className="overflow-x-auto">
+            <ul className="divide-y divide-slate-100 md:hidden">
+              {entry.lines.map((line) => {
+                const isDebit = Number(line.debit) > 0;
+                return (
+                  <li key={line.id ?? `${entry.id}-${line.account_code}`} className="flex items-start gap-3 px-4 py-2.5">
+                    <span className="mt-0.5 w-14 shrink-0 font-mono text-sm text-slate-700">{line.account_code}</span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm text-slate-600">{line.label}</p>
+                      <p className="mt-0.5 text-xs text-slate-400">{isDebit ? "Débit" : "Crédit"}</p>
+                    </div>
+                    <span className="shrink-0 text-sm font-medium tabular-nums text-slate-800">
+                      {isDebit ? line.debit : line.credit}
+                    </span>
+                  </li>
+                );
+              })}
+              <li className="flex justify-between bg-slate-50 px-4 py-2.5 text-sm font-medium text-slate-700">
+                <span>Total</span>
+                <span className="tabular-nums">{entry.total_debit} / {entry.total_credit}</span>
+              </li>
+            </ul>
+
+            <div className="hidden overflow-x-auto md:block">
               <table className="w-full text-sm">
                 <thead className="text-left text-slate-400">
                   <tr>

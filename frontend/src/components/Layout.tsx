@@ -1,13 +1,16 @@
-import { useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
-import { LogOut, Menu, Wallet, X } from "lucide-react";
+import {
+  FileText, History, LayoutDashboard, LogOut, Settings, UploadCloud, Wallet, type LucideIcon,
+} from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 
-const NAV_ITEMS = [
-  { to: "/", label: "Tableau de bord" },
-  { to: "/upload", label: "Importer" },
-  { to: "/historique", label: "Historique" },
-  { to: "/ecritures", label: "Écritures" },
+interface NavItem { to: string; label: string; short: string; icon: LucideIcon }
+
+const NAV_ITEMS: NavItem[] = [
+  { to: "/", label: "Tableau de bord", short: "Accueil", icon: LayoutDashboard },
+  { to: "/upload", label: "Importer", short: "Importer", icon: UploadCloud },
+  { to: "/historique", label: "Historique", short: "Factures", icon: History },
+  { to: "/ecritures", label: "Écritures", short: "Écritures", icon: FileText },
 ];
 
 function navLinkClass({ isActive }: { isActive: boolean }): string {
@@ -16,9 +19,9 @@ function navLinkClass({ isActive }: { isActive: boolean }): string {
   }`;
 }
 
-function mobileNavLinkClass({ isActive }: { isActive: boolean }): string {
-  return `block rounded-md px-3 py-2 text-sm font-medium ${
-    isActive ? "bg-brand-600 text-white" : "text-slate-600 hover:bg-slate-100"
+function tabClass({ isActive }: { isActive: boolean }): string {
+  return `flex min-h-[56px] flex-1 flex-col items-center justify-center gap-0.5 text-[11px] font-medium transition-colors active:bg-slate-100 ${
+    isActive ? "text-brand-700" : "text-slate-500"
   }`;
 }
 
@@ -30,15 +33,14 @@ function initials(name: string | undefined): string {
 
 export function Layout() {
   const { user, logout } = useAuth();
-  const [mobileOpen, setMobileOpen] = useState(false);
-  const navItems = (user?.role === "ADMIN" || user?.role === "ENTREPRISE_ADMIN")
-    ? [...NAV_ITEMS, { to: "/admin", label: "Administration" }]
+  const navItems: NavItem[] = (user?.role === "ADMIN" || user?.role === "ENTREPRISE_ADMIN")
+    ? [...NAV_ITEMS, { to: "/admin", label: "Administration", short: "Admin", icon: Settings }]
     : NAV_ITEMS;
 
   return (
-    <div className="min-h-screen flex flex-col">
-      <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 backdrop-blur">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
+    <div className="flex min-h-screen flex-col">
+      <header className="safe-top sticky top-0 z-40 border-b border-slate-200 bg-white/95 backdrop-blur">
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-2.5 md:py-3">
           <div className="flex items-center gap-6">
             <span className="flex items-center gap-2 text-lg font-bold text-brand-700">
               <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-600 text-white">
@@ -69,42 +71,36 @@ export function Layout() {
             </button>
           </div>
 
-          <button
-            onClick={() => setMobileOpen((v) => !v)}
-            className="flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 text-slate-600 md:hidden"
-            aria-label="Ouvrir le menu"
-          >
-            {mobileOpen ? <X size={18} /> : <Menu size={18} />}
-          </button>
+          {/* Mobile : avatar + déconnexion ; la navigation est dans la barre du bas. */}
+          <div className="flex items-center gap-2 md:hidden">
+            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-brand-100 text-xs font-bold text-brand-700">
+              {initials(user?.full_name)}
+            </span>
+            <button
+              onClick={logout} aria-label="Déconnexion"
+              className="flex h-11 w-11 items-center justify-center rounded-full text-slate-500 active:bg-slate-100"
+            >
+              <LogOut size={20} />
+            </button>
+          </div>
         </div>
-
-        {mobileOpen && (
-          <nav className="border-t border-slate-100 px-4 py-3 md:hidden animate-fade-in">
-            <div className="mb-3 flex items-center gap-2 text-sm text-slate-600">
-              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-brand-100 text-xs font-bold text-brand-700">
-                {initials(user?.full_name)}
-              </span>
-              {user?.full_name} <span className="text-slate-400">· {user?.role}</span>
-            </div>
-            <div className="flex flex-col gap-1">
-              {navItems.map((item) => (
-                <NavLink
-                  key={item.to} to={item.to} end={item.to === "/"}
-                  className={mobileNavLinkClass} onClick={() => setMobileOpen(false)}
-                >
-                  {item.label}
-                </NavLink>
-              ))}
-              <button onClick={logout} className="btn-secondary mt-2 justify-start">
-                <LogOut size={15} /> Déconnexion
-              </button>
-            </div>
-          </nav>
-        )}
       </header>
-      <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 animate-fade-in">
+
+      <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-4 pb-24 animate-fade-in md:py-6 md:pb-6">
         <Outlet />
       </main>
+
+      <nav
+        aria-label="Navigation principale"
+        className="safe-bottom fixed inset-x-0 bottom-0 z-40 flex border-t border-slate-200 bg-white/95 backdrop-blur md:hidden"
+      >
+        {navItems.map(({ to, short, icon: Icon }) => (
+          <NavLink key={to} to={to} end={to === "/"} className={tabClass}>
+            <Icon size={22} strokeWidth={1.75} />
+            {short}
+          </NavLink>
+        ))}
+      </nav>
     </div>
   );
 }

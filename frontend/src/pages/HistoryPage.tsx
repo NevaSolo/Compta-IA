@@ -1,9 +1,8 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
 import { FolderOpen } from "lucide-react";
 import { listInvoices } from "@/services/invoices";
-import { StatusBadge } from "@/components/StatusBadge";
+import { InvoiceList } from "@/components/InvoiceList";
 import { ExportButtons } from "@/components/ExportButtons";
 import { PageHeader } from "@/components/PageHeader";
 import { EmptyState } from "@/components/EmptyState";
@@ -33,12 +32,12 @@ export function HistoryPage() {
     <div className="space-y-4">
       <PageHeader title="Historique des factures" actions={<ExportButtons />} />
 
-      <div className="flex flex-wrap gap-2">
+      <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] md:mx-0 md:flex-wrap md:px-0">
         {STATUS_FILTERS.map((filter) => (
           <button
             key={filter.value}
             onClick={() => { setStatus(filter.value); setPage(1); }}
-            className={`rounded-full px-3 py-1 text-sm transition-colors ${
+            className={`chip ${
               status === filter.value
                 ? "bg-brand-600 text-white shadow-sm"
                 : "bg-white text-slate-600 border border-slate-300 hover:bg-slate-50"
@@ -55,38 +54,7 @@ export function HistoryPage() {
         ) : data && data.items.length === 0 ? (
           <EmptyState icon={FolderOpen} title="Aucun résultat" hint="Essayez un autre filtre de statut." />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-slate-50 text-left text-slate-500">
-                <tr>
-                  <th className="px-5 py-2 font-medium">Fichier</th>
-                  <th className="px-5 py-2 font-medium">Fournisseur</th>
-                  <th className="px-5 py-2 font-medium">N° facture</th>
-                  <th className="px-5 py-2 font-medium">Date</th>
-                  <th className="px-5 py-2 font-medium">Total TTC</th>
-                  <th className="px-5 py-2 font-medium">Statut</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data?.items.map((invoice) => (
-                  <tr key={invoice.id} className="border-t border-slate-100 hover:bg-slate-50">
-                    <td className="px-5 py-2.5">
-                      <Link to={`/factures/${invoice.id}`} className="text-brand-700 hover:underline">
-                        {invoice.original_filename}
-                      </Link>
-                    </td>
-                    <td className="px-5 py-2.5">{invoice.supplier_name ?? "—"}</td>
-                    <td className="px-5 py-2.5">{invoice.invoice_number ?? "—"}</td>
-                    <td className="px-5 py-2.5">{invoice.invoice_date ?? "—"}</td>
-                    <td className="px-5 py-2.5">
-                      {invoice.total_ttc ? `${invoice.total_ttc} ${invoice.currency}` : "—"}
-                    </td>
-                    <td className="px-5 py-2.5"><StatusBadge status={invoice.status} /></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <InvoiceList invoices={data?.items ?? []} detailed />
         )}
       </div>
 

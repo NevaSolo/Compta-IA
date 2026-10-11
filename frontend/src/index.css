@@ -4,7 +4,20 @@
 
 body {
   @apply bg-slate-50 text-slate-900 antialiased;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
 }
+
+/* Sur écran tactile : cibles ≥ 44 px (recommandation Apple/Google) et champs
+   à 16 px pour éviter le zoom automatique d'iOS au focus. */
+@media (pointer: coarse) {
+  .btn { min-height: 44px; padding-inline: 1rem; }
+  .input, select, textarea { min-height: 44px; font-size: 16px; }
+  .chip { min-height: 40px; }
+}
+
+.safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+.safe-top { padding-top: env(safe-area-inset-top); }
 
 /* Défilement doux + scrollbar discrète, cohérent avec le reste du design. */
 * {
@@ -44,6 +57,10 @@ body {
   }
   .btn-success {
     @apply btn bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm;
+  }
+
+  .chip {
+    @apply inline-flex shrink-0 items-center rounded-full px-3.5 py-1.5 text-sm transition-colors;
   }
 
   .input {

@@ -36,12 +36,12 @@ export function AdminPage() {
           : "Gestion des comptables de votre entreprise"}
       />
 
-      <div className="flex flex-wrap gap-2">
+      <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] md:mx-0 md:flex-wrap md:px-0">
         {tabs.map(({ key, label, icon: Icon }) => (
           <button
             key={key}
             onClick={() => setTab(key)}
-            className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm transition-colors ${
+            className={`chip gap-1.5 ${
               tab === key
                 ? "bg-brand-600 text-white shadow-sm"
                 : "bg-white text-slate-600 border border-slate-300 hover:bg-slate-50"
@@ -127,31 +127,31 @@ function CompaniesTab() {
             <table className="w-full text-sm">
               <thead className="bg-slate-50 text-left text-slate-500">
                 <tr>
-                  <th className="px-5 py-2 font-medium">Raison sociale</th>
-                  <th className="px-5 py-2 font-medium">NIF</th>
-                  <th className="px-5 py-2 font-medium">STAT</th>
-                  <th className="px-5 py-2 font-medium">Statut</th>
-                  <th className="px-5 py-2 font-medium text-right">Action</th>
+                  <th className="px-3 py-2 md:px-5 font-medium">Raison sociale</th>
+                  <th className="hidden px-3 py-2 md:table-cell md:px-5 font-medium">NIF</th>
+                  <th className="hidden px-3 py-2 md:table-cell md:px-5 font-medium">STAT</th>
+                  <th className="px-3 py-2 md:px-5 font-medium">Statut</th>
+                  <th className="px-3 py-2 md:px-5 font-medium text-right">Action</th>
                 </tr>
               </thead>
               <tbody>
                 {companiesQuery.data?.map((c) => (
                   <tr key={c.id} className="border-t border-slate-100">
-                    <td className="px-5 py-2.5 font-medium">{c.name}</td>
-                    <td className="px-5 py-2.5 text-slate-500">{c.nif ?? "—"}</td>
-                    <td className="px-5 py-2.5 text-slate-500">{c.stat ?? "—"}</td>
-                    <td className="px-5 py-2.5">
+                    <td className="px-3 py-2.5 md:px-5 font-medium">{c.name}</td>
+                    <td className="hidden px-3 py-2.5 md:table-cell md:px-5 text-slate-500">{c.nif ?? "—"}</td>
+                    <td className="hidden px-3 py-2.5 md:table-cell md:px-5 text-slate-500">{c.stat ?? "—"}</td>
+                    <td className="px-3 py-2.5 md:px-5">
                       <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
                         c.is_active ? "bg-emerald-100 text-emerald-800" : "bg-slate-200 text-slate-600"
                       }`}>
                         {c.is_active ? "Active" : "Désactivée"}
                       </span>
                     </td>
-                    <td className="px-5 py-2.5 text-right">
+                    <td className="px-3 py-2.5 md:px-5 text-right">
                       <button
                         disabled={toggleMutation.isPending}
                         onClick={() => toggleMutation.mutate({ id: c.id, isActive: !c.is_active })}
-                        className="text-xs font-medium text-brand-700 hover:underline"
+                        className="inline-flex min-h-[44px] items-center px-1 text-xs font-medium text-brand-700 hover:underline md:min-h-0"
                       >
                         {c.is_active ? "Désactiver" : "Réactiver"}
                       </button>
@@ -269,35 +269,35 @@ function UsersTab() {
             <table className="w-full text-sm">
               <thead className="bg-slate-50 text-left text-slate-500">
                 <tr>
-                  <th className="px-5 py-2 font-medium">Nom</th>
-                  <th className="px-5 py-2 font-medium">Email</th>
-                  <th className="px-5 py-2 font-medium">Rôle</th>
-                  {isGlobalAdmin && <th className="px-5 py-2 font-medium">Entreprise</th>}
-                  <th className="px-5 py-2 font-medium">Statut</th>
-                  <th className="px-5 py-2 font-medium text-right">Action</th>
+                  <th className="px-3 py-2 md:px-5 font-medium">Nom</th>
+                  <th className="hidden px-3 py-2 md:table-cell md:px-5 font-medium">Email</th>
+                  <th className="px-3 py-2 md:px-5 font-medium">Rôle</th>
+                  {isGlobalAdmin && <th className="px-3 py-2 md:px-5 font-medium">Entreprise</th>}
+                  <th className="px-3 py-2 md:px-5 font-medium">Statut</th>
+                  <th className="px-3 py-2 md:px-5 font-medium text-right">Action</th>
                 </tr>
               </thead>
               <tbody>
                 {usersQuery.data?.map((u) => (
                   <tr key={u.id} className="border-t border-slate-100">
-                    <td className="px-5 py-2.5">{u.full_name}</td>
-                    <td className="px-5 py-2.5 text-slate-500">{u.email}</td>
-                    <td className="px-5 py-2.5">
+                    <td className="px-3 py-2.5 md:px-5">{u.full_name}<span className="block break-all text-xs text-slate-400 md:hidden">{u.email}</span></td>
+                    <td className="hidden px-3 py-2.5 md:table-cell md:px-5 text-slate-500">{u.email}</td>
+                    <td className="px-3 py-2.5 md:px-5">
                       <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-700">
                         {ROLE_LABELS[u.role]}
                       </span>
                     </td>
                     {isGlobalAdmin && (
-                      <td className="px-5 py-2.5 text-slate-500">{u.company_name ?? "—"}</td>
+                      <td className="px-3 py-2.5 md:px-5 text-slate-500">{u.company_name ?? "—"}</td>
                     )}
-                    <td className="px-5 py-2.5">
+                    <td className="px-3 py-2.5 md:px-5">
                       <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
                         u.is_active ? "bg-emerald-100 text-emerald-800" : "bg-slate-200 text-slate-600"
                       }`}>
                         {u.is_active ? "Actif" : "Désactivé"}
                       </span>
                     </td>
-                    <td className="px-5 py-2.5 text-right">
+                    <td className="px-3 py-2.5 md:px-5 text-right">
                       <button
                         disabled={u.id === currentUser?.id || toggleMutation.isPending}
                         onClick={() => toggleMutation.mutate({ id: u.id, isActive: !u.is_active })}
@@ -352,25 +352,25 @@ function AuditTab() {
             <table className="w-full text-sm">
               <thead className="bg-slate-50 text-left text-slate-500">
                 <tr>
-                  <th className="px-5 py-2 font-medium">Date</th>
-                  <th className="px-5 py-2 font-medium">Auteur</th>
-                  <th className="px-5 py-2 font-medium">Action</th>
-                  <th className="px-5 py-2 font-medium">Cible</th>
+                  <th className="px-3 py-2 md:px-5 font-medium">Date</th>
+                  <th className="px-3 py-2 md:px-5 font-medium">Auteur</th>
+                  <th className="px-3 py-2 md:px-5 font-medium">Action</th>
+                  <th className="px-3 py-2 md:px-5 font-medium">Cible</th>
                 </tr>
               </thead>
               <tbody>
                 {data?.items.map((entry) => (
                   <tr key={entry.id} className="border-t border-slate-100">
-                    <td className="px-5 py-2.5 whitespace-nowrap text-slate-500">
+                    <td className="px-3 py-2.5 md:px-5 whitespace-nowrap text-slate-500">
                       {new Date(entry.created_at).toLocaleString("fr-FR")}
                     </td>
-                    <td className="px-5 py-2.5">{entry.user_name ?? "Système (pipeline IA)"}</td>
-                    <td className="px-5 py-2.5">
+                    <td className="px-3 py-2.5 md:px-5">{entry.user_name ?? "Système (pipeline IA)"}</td>
+                    <td className="px-3 py-2.5 md:px-5">
                       <span className="rounded-full bg-brand-50 px-2.5 py-0.5 text-xs font-medium text-brand-700">
                         {ACTION_LABELS[entry.action] ?? entry.action}
                       </span>
                     </td>
-                    <td className="px-5 py-2.5 text-slate-500">{entry.entity_type} #{entry.entity_id}</td>
+                    <td className="px-3 py-2.5 md:px-5 text-slate-500">{entry.entity_type} #{entry.entity_id}</td>
                   </tr>
                 ))}
               </tbody>
@@ -439,23 +439,23 @@ function ModelsTab() {
             <table className="w-full text-sm">
               <thead className="bg-slate-50 text-left text-slate-500">
                 <tr>
-                  <th className="px-5 py-2 font-medium">Version</th>
-                  <th className="px-5 py-2 font-medium">Algorithme</th>
-                  <th className="px-5 py-2 font-medium">Accuracy</th>
-                  <th className="px-5 py-2 font-medium">F1 macro</th>
-                  <th className="px-5 py-2 font-medium">Exemples</th>
-                  <th className="px-5 py-2 font-medium">Statut</th>
+                  <th className="px-3 py-2 md:px-5 font-medium">Version</th>
+                  <th className="px-3 py-2 md:px-5 font-medium">Algorithme</th>
+                  <th className="px-3 py-2 md:px-5 font-medium">Accuracy</th>
+                  <th className="px-3 py-2 md:px-5 font-medium">F1 macro</th>
+                  <th className="px-3 py-2 md:px-5 font-medium">Exemples</th>
+                  <th className="px-3 py-2 md:px-5 font-medium">Statut</th>
                 </tr>
               </thead>
               <tbody>
                 {versionsQuery.data?.map((v) => (
                   <tr key={`${v.name}-${v.version}`} className="border-t border-slate-100">
-                    <td className="px-5 py-2.5 font-mono">{v.version}</td>
-                    <td className="px-5 py-2.5 text-slate-600">{v.algorithm}</td>
-                    <td className="px-5 py-2.5">{v.accuracy !== null ? `${Math.round(v.accuracy * 100)}%` : "—"}</td>
-                    <td className="px-5 py-2.5">{v.f1_score !== null ? `${Math.round(v.f1_score * 100)}%` : "—"}</td>
-                    <td className="px-5 py-2.5">{v.training_samples}</td>
-                    <td className="px-5 py-2.5">
+                    <td className="px-3 py-2.5 md:px-5 font-mono">{v.version}</td>
+                    <td className="px-3 py-2.5 md:px-5 text-slate-600">{v.algorithm}</td>
+                    <td className="px-3 py-2.5 md:px-5">{v.accuracy !== null ? `${Math.round(v.accuracy * 100)}%` : "—"}</td>
+                    <td className="px-3 py-2.5 md:px-5">{v.f1_score !== null ? `${Math.round(v.f1_score * 100)}%` : "—"}</td>
+                    <td className="px-3 py-2.5 md:px-5">{v.training_samples}</td>
+                    <td className="px-3 py-2.5 md:px-5">
                       {v.is_active ? (
                         <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-800">Active</span>
                       ) : (
