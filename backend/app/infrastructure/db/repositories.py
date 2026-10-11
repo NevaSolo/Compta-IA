@@ -17,13 +17,15 @@ from app.infrastructure.db import models as m
 
 def _company_to_domain(row: m.CompanyModel) -> dom.Company:
     return dom.Company(id=row.id, name=row.name, nif=row.nif, stat=row.stat,
-                       address=row.address, is_active=row.is_active)
+                       address=row.address, is_active=row.is_active, logo_path=row.logo_path)
 
 
 def _user_to_domain(row: m.UserModel) -> dom.User:
     return dom.User(id=row.id, email=row.email, full_name=row.full_name,
                     role=dom.Role(row.role), company_id=row.company_id,
-                    is_active=row.is_active, password_hash=row.password_hash)
+                    is_active=row.is_active, password_hash=row.password_hash,
+                    avatar_path=row.avatar_path, theme=row.theme or "auto",
+                    accent=row.accent or "blue")
 
 
 def _invoice_to_domain(row: m.InvoiceModel) -> dom.Invoice:
@@ -92,8 +94,24 @@ class MySQLCompanyRepository(ports.CompanyRepository):
         self.db.refresh(row)
         return _company_to_domain(row)
 
+    def update_branding(self, company_id: int, **fields) -> dom.Company | None:
+        unknown = set(fields) - {"name", "logo_path"}
+        if unknown:
+            raise ValueError(f"Champs non modifiables : {sorted(unknown)}")
+        row = self.db.get(m.CompanyModel, company_id)
+        if row is None:
+            return None
+        for name, value in fields.items():
+            setattr(row, name, value)
+        self.db.commit()
+        self.db.refresh(row)
+        return _company_to_domain(row)
+
 
 class MySQLUserRepository(ports.UserRepository):
+    # Champs modifiables par l'utilisateur lui-même (jamais le rôle ni l'entreprise).
+    PROFILE_FIELDS = {"full_name", "theme", "accent", "avatar_path", "password_hash"}
+
     def __init__(self, db: Session):
         self.db = db
 
@@ -126,6 +144,19 @@ class MySQLUserRepository(ports.UserRepository):
         if row is None:
             return None
         row.is_active = is_active
+        self.db.commit()
+        self.db.refresh(row)
+        return _user_to_domain(row)
+
+    def update_profile(self, user_id: int, **fields) -> dom.User | None:
+        unknown = set(fields) - self.PROFILE_FIELDS
+        if unknown:
+            raise ValueError(f"Champs non modifiables : {sorted(unknown)}")
+        row = self.db.get(m.UserModel, user_id)
+        if row is None:
+            return None
+        for name, value in fields.items():
+            setattr(row, name, value)
         self.db.commit()
         self.db.refresh(row)
         return _user_to_domain(row)

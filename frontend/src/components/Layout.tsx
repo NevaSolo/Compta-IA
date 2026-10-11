@@ -1,8 +1,9 @@
-import { NavLink, Outlet } from "react-router-dom";
+import { Link, NavLink, Outlet } from "react-router-dom";
 import {
   FileText, History, LayoutDashboard, LogOut, Settings, UploadCloud, Wallet, type LucideIcon,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
+import { Avatar, CompanyBrand } from "@/components/Avatar";
 
 interface NavItem { to: string; label: string; short: string; icon: LucideIcon }
 
@@ -25,12 +26,6 @@ function tabClass({ isActive }: { isActive: boolean }): string {
   }`;
 }
 
-function initials(name: string | undefined): string {
-  if (!name) return "?";
-  const parts = name.trim().split(/\s+/);
-  return (parts[0]?.[0] ?? "").concat(parts[1]?.[0] ?? "").toUpperCase() || "?";
-}
-
 export function Layout() {
   const { user, logout } = useAuth();
   const navItems: NavItem[] = (user?.role === "ADMIN" || user?.role === "ENTREPRISE_ADMIN")
@@ -41,13 +36,14 @@ export function Layout() {
     <div className="flex min-h-screen flex-col">
       <header className="safe-top sticky top-0 z-40 border-b border-slate-200 bg-white/95 backdrop-blur">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-2.5 md:py-3">
-          <div className="flex items-center gap-6">
-            <span className="flex items-center gap-2 text-lg font-bold text-brand-700">
+          <div className="flex min-w-0 items-center gap-3 md:gap-6">
+            <Link to="/" className="flex shrink-0 items-center gap-2 text-lg font-bold text-brand-700">
               <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-600 text-white">
                 <Wallet size={18} />
               </span>
-              Compta-IA
-            </span>
+              <span className="hidden min-[360px]:inline">Compta-IA</span>
+            </Link>
+            <CompanyBrand compact />
             <nav className="hidden gap-1 md:flex">
               {navItems.map((item) => (
                 <NavLink key={item.to} to={item.to} end={item.to === "/"} className={navLinkClass}>
@@ -58,14 +54,13 @@ export function Layout() {
           </div>
 
           <div className="hidden items-center gap-3 text-sm md:flex">
-            <div className="flex items-center gap-2">
-              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-brand-100 text-xs font-bold text-brand-700">
-                {initials(user?.full_name)}
-              </span>
+            <Link to="/profil" className="flex items-center gap-2 rounded-md p-1 hover:bg-slate-100"
+                  title="Mon profil">
+              <Avatar user={user} size="sm" />
               <span className="text-slate-600">
                 {user?.full_name} <span className="text-slate-400">· {user?.role}</span>
               </span>
-            </div>
+            </Link>
             <button onClick={logout} className="btn-secondary">
               <LogOut size={15} /> Déconnexion
             </button>
@@ -73,9 +68,9 @@ export function Layout() {
 
           {/* Mobile : avatar + déconnexion ; la navigation est dans la barre du bas. */}
           <div className="flex items-center gap-2 md:hidden">
-            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-brand-100 text-xs font-bold text-brand-700">
-              {initials(user?.full_name)}
-            </span>
+            <Link to="/profil" aria-label="Mon profil" className="rounded-full">
+              <Avatar user={user} />
+            </Link>
             <button
               onClick={logout} aria-label="Déconnexion"
               className="flex h-11 w-11 items-center justify-center rounded-full text-slate-500 active:bg-slate-100"

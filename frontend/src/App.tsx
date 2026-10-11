@@ -11,6 +11,7 @@ import { HistoryPage } from "@/pages/HistoryPage";
 import { EntriesPage } from "@/pages/EntriesPage";
 import { InvoiceDetailPage } from "@/pages/InvoiceDetailPage";
 import { AdminPage } from "@/pages/AdminPage";
+import { ProfilePage } from "@/pages/ProfilePage";
 
 export function App() {
   return (
@@ -28,6 +29,7 @@ export function App() {
               <Route path="/historique" element={<HistoryPage />} />
               <Route path="/ecritures" element={<EntriesPage />} />
               <Route path="/factures/:id" element={<InvoiceDetailPage />} />
+              <Route path="/profil" element={<ProfilePage />} />
               <Route element={<AdminRoute />}>
                 <Route path="/admin" element={<AdminPage />} />
               </Route>

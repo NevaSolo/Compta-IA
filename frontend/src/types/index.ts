@@ -1,6 +1,8 @@
 // Types miroirs des schémas Pydantic du backend (app/presentation/schemas.py).
 // Toute évolution d'un schéma côté API doit se répercuter ici.
 
+import type { Accent, ThemeMode } from "@/theme";
+
 export type Role = "ADMIN" | "ENTREPRISE_ADMIN" | "COMPTABLE";
 
 export interface User {
@@ -11,6 +13,10 @@ export interface User {
   company_id: number | null;
   company_name?: string | null;
   is_active?: boolean;
+  theme?: ThemeMode;
+  accent?: Accent;
+  avatar_version?: number | null;
+  company_logo_version?: number | null;
 }
 
 export interface Company {
@@ -20,6 +26,7 @@ export interface Company {
   stat: string | null;
   address: string | null;
   is_active: boolean;
+  logo_version?: number | null;
 }
 
 export interface AuditLogEntry {

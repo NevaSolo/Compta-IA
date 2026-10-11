@@ -6,28 +6,35 @@ Deux niveaux d'administration :
 - ENTREPRISE_ADMIN : ne voit/gère que les comptes COMPTABLE de SA PROPRE
   entreprise (portée imposée par son company_id, jamais par le client).
 """
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from app.application.use_cases import AuthenticateUserUseCase, UseCaseError
 from app.core.dependencies import get_current_user, require_company_admin
-from app.core.security import hash_password
-from app.domain.entities import Role, User
+from app.core import branding
+from app.core.security import hash_password, verify_password
+from app.domain.entities import Company, Role, User
 from app.infrastructure.db.database import get_db
 from app.infrastructure.db.repositories import (
     MySQLAuditRepository, MySQLCompanyRepository, MySQLUserRepository,
 )
 from app.presentation.schemas import (
-    LoginRequest, TokenResponse, UserActiveUpdate, UserCreate, UserOut,
+    LoginRequest, PasswordChange, ProfileUpdate, TokenResponse, UserActiveUpdate,
+    UserCreate, UserOut,
 )
 
 router = APIRouter(prefix="/api/auth", tags=["Authentification"])
 
 
-def _to_out(user: User, company_name: str | None = None) -> UserOut:
+def _to_out(user: User, company: Company | None = None) -> UserOut:
     return UserOut(id=user.id, email=user.email, full_name=user.full_name,
                    role=user.role.value, company_id=user.company_id,
-                   company_name=company_name, is_active=user.is_active)
+                   company_name=company.name if company else None,
+                   is_active=user.is_active, theme=user.theme, accent=user.accent,
+                   avatar_version=branding.image_version(user.avatar_path),
+                   company_logo_version=(branding.image_version(company.logo_path)
+                                         if company else None))
 
 
 @router.post("/login", response_model=TokenResponse,
@@ -44,7 +51,64 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
 def me(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     company = (MySQLCompanyRepository(db).get_by_id(user.company_id)
               if user.company_id else None)
-    return _to_out(user, company.name if company else None)
+    return _to_out(user, company)
+
+
+def _own_profile(user: User, db: Session) -> UserOut:
+    refreshed = MySQLUserRepository(db).get_by_id(user.id)
+    company = (MySQLCompanyRepository(db).get_by_id(user.company_id)
+               if user.company_id else None)
+    return _to_out(refreshed, company)
+
+
+@router.patch("/me/profile", response_model=UserOut,
+              summary="Modifier mon nom, mon thème et ma couleur")
+def update_my_profile(payload: ProfileUpdate, user: User = Depends(get_current_user),
+                      db: Session = Depends(get_db)):
+    fields = payload.model_dump(exclude_none=True)
+    if fields:
+        MySQLUserRepository(db).update_profile(user.id, **fields)
+    return _own_profile(user, db)
+
+
+@router.post("/me/password", status_code=204, summary="Changer mon mot de passe")
+def change_my_password(payload: PasswordChange, user: User = Depends(get_current_user),
+                       db: Session = Depends(get_db)):
+    if not verify_password(payload.current_password, user.password_hash):
+        raise HTTPException(status_code=422, detail="Mot de passe actuel incorrect")
+    if payload.new_password == payload.current_password:
+        raise HTTPException(status_code=422, detail="Le nouveau mot de passe doit être différent")
+    MySQLUserRepository(db).update_profile(user.id, password_hash=hash_password(payload.new_password))
+    MySQLAuditRepository(db).log(user.id, "PASSWORD_CHANGED", "user", user.id)
+    return Response(status_code=204)
+
+
+@router.put("/me/avatar", response_model=UserOut, summary="Définir ma photo de profil")
+async def upload_my_avatar(file: UploadFile = File(...), user: User = Depends(get_current_user),
+                           db: Session = Depends(get_db)):
+    try:
+        data = branding.process_avatar(await file.read())
+    except branding.InvalidImageError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    name = branding.save_image(f"user_{user.id}.png", data)
+    MySQLUserRepository(db).update_profile(user.id, avatar_path=name)
+    return _own_profile(user, db)
+
+
+@router.delete("/me/avatar", response_model=UserOut, summary="Supprimer ma photo de profil")
+def delete_my_avatar(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    branding.delete_image(user.avatar_path)
+    MySQLUserRepository(db).update_profile(user.id, avatar_path=None)
+    return _own_profile(user, db)
+
+
+@router.get("/me/avatar", summary="Ma photo de profil")
+def get_my_avatar(user: User = Depends(get_current_user)):
+    data = branding.read_image(user.avatar_path) if user.avatar_path else None
+    if data is None:
+        raise HTTPException(status_code=404, detail="Aucune photo de profil")
+    return Response(content=data, media_type="image/png",
+                    headers={"Cache-Control": "private, max-age=86400"})
 
 
 @router.post("/users", response_model=UserOut, status_code=201,
@@ -92,16 +156,12 @@ def list_users(caller: User = Depends(require_company_admin), db: Session = Depe
     scope = None if caller.role == Role.ADMIN else caller.company_id
     users = MySQLUserRepository(db).list_all(scope)
     companies = MySQLCompanyRepository(db)
-    company_names: dict[int, str] = {}
+    cache: dict[int, Company | None] = {}
     out = []
     for u in users:
-        name = None
-        if u.company_id:
-            if u.company_id not in company_names:
-                company = companies.get_by_id(u.company_id)
-                company_names[u.company_id] = company.name if company else ""
-            name = company_names[u.company_id] or None
-        out.append(_to_out(u, name))
+        if u.company_id and u.company_id not in cache:
+            cache[u.company_id] = companies.get_by_id(u.company_id)
+        out.append(_to_out(u, cache.get(u.company_id) if u.company_id else None))
     return out
 
 

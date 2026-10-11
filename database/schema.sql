@@ -20,6 +20,7 @@ CREATE TABLE companies (
   nif            VARCHAR(50)     NULL,
   stat           VARCHAR(50)     NULL,
   address        VARCHAR(500)    NULL,
+  logo_path      VARCHAR(500)    NULL,
   is_active      TINYINT(1)      NOT NULL DEFAULT 1,
   created_at     DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id)
@@ -36,6 +37,9 @@ CREATE TABLE users (
   email          VARCHAR(255)    NOT NULL,
   password_hash  VARCHAR(255)    NOT NULL,
   full_name      VARCHAR(150)    NOT NULL,
+  avatar_path    VARCHAR(500)    NULL,
+  theme          VARCHAR(10)     NOT NULL DEFAULT 'auto',
+  accent         VARCHAR(10)     NOT NULL DEFAULT 'blue',
   role           ENUM('ADMIN','ENTREPRISE_ADMIN','COMPTABLE') NOT NULL DEFAULT 'COMPTABLE',
   is_active      TINYINT(1)      NOT NULL DEFAULT 1,
   created_at     DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,

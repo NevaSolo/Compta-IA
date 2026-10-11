@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { applyTheme, loadStoredTheme, watchSystemTheme } from "@/theme";
 import type { User } from "@/types";
 import { fetchMe, login as loginRequest } from "@/services/auth";
 
@@ -7,6 +8,8 @@ interface AuthContextValue {
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
+  /** Remplace le profil courant (après une modification du profil ou de l'entreprise). */
+  setUser: (user: User) => void;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -30,11 +33,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .finally(() => setIsLoading(false));
   }, []);
 
+  // Thème et couleur d'accent : ceux du profil une fois connecté, sinon ceux
+  // mémorisés sur cet appareil (page de connexion).
+  useEffect(() => {
+    const stored = loadStoredTheme();
+    const mode = user?.theme ?? stored.mode;
+    const accent = user?.accent ?? stored.accent;
+    applyTheme(mode, accent);
+    return watchSystemTheme(mode, accent);
+  }, [user?.theme, user?.accent]);
+
   async function login(email: string, password: string) {
     const response = await loginRequest(email, password);
     localStorage.setItem("access_token", response.access_token);
-    localStorage.setItem("user", JSON.stringify(response.user));
-    setUser(response.user);
+    // La réponse de connexion ne contient ni l'entreprise ni la personnalisation :
+    // on charge le profil complet.
+    setUser(await fetchMe());
   }
 
   function logout() {
@@ -44,7 +58,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, login, logout }}>
+    <AuthContext.Provider value={{ user, isLoading, login, logout, setUser }}>
       {children}
     </AuthContext.Provider>
   );

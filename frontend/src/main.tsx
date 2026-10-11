@@ -5,7 +5,14 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { App } from "./App";
 import { AuthProvider } from "@/context/AuthContext";
 import { ToastProvider } from "@/context/ToastContext";
+import { applyTheme, loadStoredTheme } from "@/theme";
 import "./index.css";
+
+// Avant le premier rendu : évite un flash clair avant l'application du thème enregistré.
+{
+  const { mode, accent } = loadStoredTheme();
+  applyTheme(mode, accent);
+}
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },

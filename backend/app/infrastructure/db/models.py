@@ -19,6 +19,7 @@ class CompanyModel(Base):
     nif: Mapped[str | None] = mapped_column(String(50), nullable=True)
     stat: Mapped[str | None] = mapped_column(String(50), nullable=True)
     address: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    logo_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
@@ -31,6 +32,9 @@ class UserModel(Base):
     email: Mapped[str] = mapped_column(String(255), unique=True)
     password_hash: Mapped[str] = mapped_column(String(255))
     full_name: Mapped[str] = mapped_column(String(150))
+    avatar_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    theme: Mapped[str] = mapped_column(String(10), default="auto")
+    accent: Mapped[str] = mapped_column(String(10), default="blue")
     role: Mapped[str] = mapped_column(
         Enum("ADMIN", "ENTREPRISE_ADMIN", "COMPTABLE"), default="COMPTABLE")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)

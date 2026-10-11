@@ -83,6 +83,7 @@ class Company:
     stat: str | None = None
     address: str | None = None
     is_active: bool = True
+    logo_path: str | None = None  # fichier dans le stockage « branding »
 
 
 @dataclass
@@ -96,6 +97,9 @@ class User:
     company_id: int | None = None
     is_active: bool = True
     password_hash: str = ""
+    avatar_path: str | None = None
+    theme: str = "auto"    # auto | light | dark
+    accent: str = "blue"   # voir app.core.branding.ACCENTS
 
 
 @dataclass

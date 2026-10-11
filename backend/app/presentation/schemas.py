@@ -20,6 +20,27 @@ class UserOut(BaseModel):
     company_id: int | None = None
     company_name: str | None = None
     is_active: bool = True
+    # Personnalisation. Les *_version (horodatage du fichier) servent de clé de
+    # cache : l'image n'est retéléchargée que si elle a changé.
+    theme: str = "auto"
+    accent: str = "blue"
+    avatar_version: int | None = None
+    company_logo_version: int | None = None
+
+
+class ProfileUpdate(BaseModel):
+    full_name: str | None = Field(default=None, min_length=2, max_length=150)
+    theme: str | None = Field(default=None, pattern="^(auto|light|dark)$")
+    accent: str | None = Field(default=None, pattern="^(blue|emerald|violet|rose|amber|slate)$")
+
+
+class PasswordChange(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=8, max_length=128)
+
+
+class CompanyBrandingUpdate(BaseModel):
+    name: str = Field(min_length=2, max_length=255)
 
 
 class UserActiveUpdate(BaseModel):
@@ -50,6 +71,7 @@ class CompanyOut(BaseModel):
     stat: str | None = None
     address: str | None = None
     is_active: bool = True
+    logo_version: int | None = None
 
 
 class CompanyCreate(BaseModel):
