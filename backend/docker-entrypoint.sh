@@ -2,7 +2,7 @@
 # Point d'entrée du conteneur backend :
 # 1. attend que MySQL accepte les connexions (le conteneur DB peut démarrer
 #    plus lentement que le backend au premier lancement) ;
-# 2. crée le compte administrateur/comptable initial si absent (idempotent —
+# 2. installe les plans comptables du catalogue (idempotent), puis crée le compte administrateur/comptable initial si absent (idempotent —
 #    seed_users.py vérifie déjà l'existence de chaque compte avant insertion) ;
 # 3. démarre Uvicorn.
 set -euo pipefail
@@ -24,6 +24,9 @@ except OSError:
   sleep 2
 done
 echo "==> MySQL disponible."
+
+echo "==> Installation du catalogue de plans comptables (idempotent)..."
+python -m scripts.install_charts || echo "    (avertissement non bloquant : voir message ci-dessus)"
 
 echo "==> Création des comptes initiaux (si absents)..."
 python -m scripts.seed_users || echo "    (avertissement non bloquant : voir message ci-dessus)"

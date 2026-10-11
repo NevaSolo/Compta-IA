@@ -18,6 +18,9 @@ export interface User {
   avatar_version?: number | null;
   company_logo_version?: number | null;
   company_currency?: string;
+  /** null = plan comptable pas encore choisi (import de factures bloqué) */
+  company_chart_id?: number | null;
+  company_chart_name?: string | null;
 }
 
 export interface Company {
@@ -29,6 +32,17 @@ export interface Company {
   is_active: boolean;
   logo_version?: number | null;
   base_currency?: string;
+  chart_id?: number | null;
+}
+
+export interface Chart {
+  id: number;
+  code: string;
+  name: string;
+  country: string | null;
+  version: string | null;
+  description: string | null;
+  accounts_count: number;
 }
 
 export interface AuditLogEntry {

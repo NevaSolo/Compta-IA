@@ -1,6 +1,7 @@
 import { useRef, useState, type FormEvent } from "react";
 import { Building2, Camera, Check, Monitor, Moon, Sun, Trash2, type LucideIcon } from "lucide-react";
 import { Avatar } from "@/components/Avatar";
+import { ChartPicker } from "@/components/ChartPicker";
 import { CurrencySettings } from "@/components/CurrencySettings";
 import { PageHeader } from "@/components/PageHeader";
 import { useAuth } from "@/context/AuthContext";
@@ -229,6 +230,13 @@ export function ProfilePage() {
               Enregistrer le nom
             </button>
           </form>
+        </Section>
+      )}
+
+      {canEditCompany && (
+        <Section title="Plan comptable"
+                 hint={user.company_chart_name ? `Plan actuel : ${user.company_chart_name}. Modifiable tant qu'aucune écriture n'existe.` : "Aucun plan choisi."}>
+          <ChartPicker />
         </Section>
       )}
 

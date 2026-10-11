@@ -158,3 +158,15 @@ docker compose exec -T db mysql --default-character-set=utf8mb4 -uroot -p"$MYSQL
 
 `001` ajoute le moteur `PDF_TEXT` (lecture directe du texte des PDF numériques) :
 sans lui, le traitement d'un PDF numérique échoue à l'enregistrement du résultat de lecture.
+
+### Migrations 002 à 004
+
+| Fichier | Effet |
+|---|---|
+| `002_profile_branding.sql` | photo de profil, thème, accent, logo d'entreprise |
+| `003_currency_conversion.sql` | devise de l'entreprise, taux de change, conversion des factures |
+| `004_charts_of_accounts.sql` | plans comptables multiples (`charts`) : les comptes, règles et entreprises existants passent au plan « PCG Madagascar 2005 » |
+
+Après `004`, les plans supplémentaires du catalogue (ex. PCG français) s'installent
+avec `python -m scripts.install_charts` ; le conteneur backend le fait lui-même à chaque
+démarrage (idempotent : rien n'est dupliqué ni écrasé).

@@ -17,7 +17,7 @@ from app.core.security import hash_password, verify_password
 from app.domain.entities import Company, Role, User
 from app.infrastructure.db.database import get_db
 from app.infrastructure.db.repositories import (
-    MySQLAuditRepository, MySQLCompanyRepository, MySQLUserRepository,
+    MySQLAuditRepository, MySQLChartRepository, MySQLCompanyRepository, MySQLUserRepository,
 )
 from app.presentation.schemas import (
     LoginRequest, PasswordChange, ProfileUpdate, TokenResponse, UserActiveUpdate,
@@ -27,15 +27,24 @@ from app.presentation.schemas import (
 router = APIRouter(prefix="/api/auth", tags=["Authentification"])
 
 
-def _to_out(user: User, company: Company | None = None) -> UserOut:
+def _to_out(user: User, company: Company | None = None, chart_name: str | None = None) -> UserOut:
     return UserOut(id=user.id, email=user.email, full_name=user.full_name,
                    role=user.role.value, company_id=user.company_id,
                    company_name=company.name if company else None,
                    company_currency=company.base_currency if company else "MGA",
+                   company_chart_id=company.chart_id if company else None,
+                   company_chart_name=chart_name,
                    is_active=user.is_active, theme=user.theme, accent=user.accent,
                    avatar_version=branding.image_version(user.avatar_path),
                    company_logo_version=(branding.image_version(company.logo_path)
                                          if company else None))
+
+
+def _chart_name(db: Session, company: Company | None) -> str | None:
+    if company is None or company.chart_id is None:
+        return None
+    chart = MySQLChartRepository(db).get_by_id(company.chart_id)
+    return chart.name if chart else None
 
 
 @router.post("/login", response_model=TokenResponse,
@@ -52,14 +61,14 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
 def me(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     company = (MySQLCompanyRepository(db).get_by_id(user.company_id)
               if user.company_id else None)
-    return _to_out(user, company)
+    return _to_out(user, company, _chart_name(db, company))
 
 
 def _own_profile(user: User, db: Session) -> UserOut:
     refreshed = MySQLUserRepository(db).get_by_id(user.id)
     company = (MySQLCompanyRepository(db).get_by_id(user.company_id)
                if user.company_id else None)
-    return _to_out(refreshed, company)
+    return _to_out(refreshed, company, _chart_name(db, company))
 
 
 @router.patch("/me/profile", response_model=UserOut,

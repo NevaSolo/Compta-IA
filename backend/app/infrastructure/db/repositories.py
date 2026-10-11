@@ -18,7 +18,7 @@ from app.infrastructure.db import models as m
 def _company_to_domain(row: m.CompanyModel) -> dom.Company:
     return dom.Company(id=row.id, name=row.name, nif=row.nif, stat=row.stat,
                        address=row.address, is_active=row.is_active, logo_path=row.logo_path,
-                       base_currency=row.base_currency or "MGA")
+                       base_currency=row.base_currency or "MGA", chart_id=row.chart_id)
 
 
 def _user_to_domain(row: m.UserModel) -> dom.User:
@@ -111,6 +111,15 @@ class MySQLCompanyRepository(ports.CompanyRepository):
         self.db.refresh(row)
         return _company_to_domain(row)
 
+    def set_chart(self, company_id: int, chart_id: int | None) -> dom.Company | None:
+        row = self.db.get(m.CompanyModel, company_id)
+        if row is None:
+            return None
+        row.chart_id = chart_id
+        self.db.commit()
+        self.db.refresh(row)
+        return _company_to_domain(row)
+
     def update_branding(self, company_id: int, **fields) -> dom.Company | None:
         unknown = set(fields) - {"name", "logo_path"}
         if unknown:
@@ -123,6 +132,32 @@ class MySQLCompanyRepository(ports.CompanyRepository):
         self.db.commit()
         self.db.refresh(row)
         return _company_to_domain(row)
+
+
+class MySQLChartRepository(ports.ChartRepository):
+    def __init__(self, db: Session):
+        self.db = db
+
+    def _to_domain(self, row: m.ChartModel, counts: dict[int, int]) -> dom.Chart:
+        return dom.Chart(id=row.id, code=row.code, name=row.name, country=row.country,
+                         version=row.version, description=row.description,
+                         accounts_count=counts.get(row.id, 0))
+
+    def _counts(self) -> dict[int, int]:
+        rows = self.db.execute(
+            select(m.AccountModel.chart_id, func.count(m.AccountModel.id))
+            .where(m.AccountModel.is_active.is_(True)).group_by(m.AccountModel.chart_id)).all()
+        return {chart_id: count for chart_id, count in rows if chart_id is not None}
+
+    def list_active(self) -> list[dom.Chart]:
+        counts = self._counts()
+        rows = self.db.scalars(select(m.ChartModel).where(m.ChartModel.is_active.is_(True))
+                               .order_by(m.ChartModel.country, m.ChartModel.name)).all()
+        return [self._to_domain(r, counts) for r in rows]
+
+    def get_by_id(self, chart_id: int) -> dom.Chart | None:
+        row = self.db.get(m.ChartModel, chart_id)
+        return self._to_domain(row, self._counts()) if row else None
 
 
 class MySQLExchangeRateRepository(ports.ExchangeRateRepository):
@@ -165,14 +200,20 @@ class MySQLExchangeRateRepository(ports.ExchangeRateRepository):
         self.db.commit()
         return True
 
-    def find_applicable(self, company_id: int, currency: str, on_date) -> dom.ExchangeRate | None:
-        """Le taux le plus récent dont la date d'effet est antérieure ou égale à la date demandée."""
-        row = self.db.scalar(
-            select(m.ExchangeRateModel).where(
-                m.ExchangeRateModel.company_id == company_id,
-                m.ExchangeRateModel.currency == currency,
-                m.ExchangeRateModel.effective_date <= on_date)
-            .order_by(m.ExchangeRateModel.effective_date.desc()).limit(1))
+    def find_applicable(self, company_id: int, currency: str, on_date,
+                        allow_later: bool = False) -> dom.ExchangeRate | None:
+        """Le taux le plus récent dont la date d'effet est antérieure ou égale à la date demandée.
+        Si aucun n'existe et `allow_later`, le plus proche taux postérieur (le plus ancien
+        enregistré après cette date) : mieux vaut un taux voisin, signalé et modifiable sur la
+        facture, que bloquer le traitement parce qu'un taux a été saisi à une date d'effet récente."""
+        base = select(m.ExchangeRateModel).where(
+            m.ExchangeRateModel.company_id == company_id,
+            m.ExchangeRateModel.currency == currency)
+        row = self.db.scalar(base.where(m.ExchangeRateModel.effective_date <= on_date)
+                             .order_by(m.ExchangeRateModel.effective_date.desc()).limit(1))
+        if row is None and allow_later:
+            row = self.db.scalar(base.where(m.ExchangeRateModel.effective_date > on_date)
+                                 .order_by(m.ExchangeRateModel.effective_date.asc()).limit(1))
         return self._to_domain(row) if row else None
 
 
@@ -281,22 +322,31 @@ class MySQLAccountRepository(ports.AccountRepository):
     def __init__(self, db: Session):
         self.db = db
 
-    def get_by_code(self, code: str) -> dom.Account | None:
-        row = self.db.scalar(select(m.AccountModel).where(m.AccountModel.code == code))
-        if not row:
-            return None
+    @staticmethod
+    def _to_domain(row: m.AccountModel) -> dom.Account:
         return dom.Account(id=row.id, code=row.code, label=row.label,
                            account_class=row.account_class,
                            normal_balance=row.normal_balance,
                            parent_code=row.parent_code, is_active=row.is_active)
 
-    def list_active(self) -> list[dom.Account]:
-        rows = self.db.scalars(select(m.AccountModel)
-                               .where(m.AccountModel.is_active.is_(True))
-                               .order_by(m.AccountModel.code)).all()
-        return [dom.Account(id=r.id, code=r.code, label=r.label,
-                            account_class=r.account_class, normal_balance=r.normal_balance,
-                            parent_code=r.parent_code, is_active=r.is_active) for r in rows]
+    def get_by_code(self, code: str, chart_id: int | None = None) -> dom.Account | None:
+        """Compte d'un plan donné. Sans plan (anciens appels), le premier compte de ce code."""
+        query = select(m.AccountModel).where(m.AccountModel.code == code)
+        if chart_id is not None:
+            query = query.where(m.AccountModel.chart_id == chart_id)
+        row = self.db.scalars(query.order_by(m.AccountModel.id).limit(1)).first()
+        return self._to_domain(row) if row else None
+
+    def get_by_code_for_company(self, code: str, company_id: int) -> dom.Account | None:
+        company = self.db.get(m.CompanyModel, company_id)
+        return self.get_by_code(code, company.chart_id if company else None)
+
+    def list_active(self, chart_id: int | None = None) -> list[dom.Account]:
+        query = select(m.AccountModel).where(m.AccountModel.is_active.is_(True))
+        if chart_id is not None:
+            query = query.where(m.AccountModel.chart_id == chart_id)
+        rows = self.db.scalars(query.order_by(m.AccountModel.code)).all()
+        return [self._to_domain(r) for r in rows]
 
 
 class MySQLInvoiceRepository(ports.InvoiceRepository):
@@ -530,6 +580,10 @@ class MySQLEntryRepository(ports.EntryRepository):
         self.db.commit()
         return len(rows)
 
+    def count_for_company(self, company_id: int) -> int:
+        return self.db.scalar(select(func.count()).select_from(m.JournalEntryModel).where(
+            m.JournalEntryModel.company_id == company_id)) or 0
+
     def count_validated(self, company_id: int) -> int:
         return self.db.scalar(select(func.count()).select_from(m.JournalEntryModel).where(
             m.JournalEntryModel.company_id == company_id,
@@ -547,11 +601,13 @@ class MySQLRuleRepository(ports.RuleRepository):
     def __init__(self, db: Session):
         self.db = db
 
-    def get_active_for_operation(self, operation_type: str) -> dict | None:
-        row = self.db.scalar(select(m.AccountingRuleModel)
-                             .where(m.AccountingRuleModel.operation_type == operation_type,
-                                    m.AccountingRuleModel.is_active.is_(True))
-                             .order_by(m.AccountingRuleModel.priority))
+    def get_active_for_operation(self, operation_type: str, chart_id: int | None = None) -> dict | None:
+        query = select(m.AccountingRuleModel).where(
+            m.AccountingRuleModel.operation_type == operation_type,
+            m.AccountingRuleModel.is_active.is_(True))
+        if chart_id is not None:
+            query = query.where(m.AccountingRuleModel.chart_id == chart_id)
+        row = self.db.scalars(query.order_by(m.AccountingRuleModel.priority).limit(1)).first()
         if not row:
             return None
         return {"id": row.id, "code": row.code, "description": row.description,

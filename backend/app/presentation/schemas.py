@@ -27,6 +27,9 @@ class UserOut(BaseModel):
     avatar_version: int | None = None
     company_logo_version: int | None = None
     company_currency: str = "MGA"
+    # None = l'entreprise n'a pas encore choisi son plan comptable (import de factures bloqué)
+    company_chart_id: int | None = None
+    company_chart_name: str | None = None
 
 
 class ProfileUpdate(BaseModel):
@@ -74,6 +77,7 @@ class CompanyOut(BaseModel):
     is_active: bool = True
     logo_version: int | None = None
     base_currency: str = "MGA"
+    chart_id: int | None = None
 
 
 class CompanyCreate(BaseModel):
@@ -181,6 +185,20 @@ class ExchangeRateOut(BaseModel):
     currency: str
     rate: Decimal
     effective_date: date
+
+
+class ChartOut(BaseModel):
+    id: int
+    code: str
+    name: str
+    country: str | None = None
+    version: str | None = None
+    description: str | None = None
+    accounts_count: int = 0
+
+
+class ChartChoice(BaseModel):
+    chart_id: int
 
 
 class CurrencyUpdate(BaseModel):

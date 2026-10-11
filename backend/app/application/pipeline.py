@@ -9,13 +9,14 @@ import logging
 from datetime import date
 from decimal import Decimal
 
+from app.catalog.installer import keywords_for_chart
 from app.core.config import get_settings
 from app.core.currency import convert_amounts
 from app.domain.entities import (
     DocumentType, ExtractedEntity, Invoice, InvoiceStatus, PipelineStep, Supplier,
 )
 from app.domain.ports import (
-    AccountRepository, CompanyRepository, EntityExtractor, EntryRepository,
+    AccountRepository, ChartRepository, CompanyRepository, EntityExtractor, EntryRepository,
     ExchangeRateRepository, InvoiceRepository, OcrResult, RuleRepository, SupplierRepository,
 )
 from app.domain.rules import VATCalculator
@@ -29,6 +30,18 @@ from app.infrastructure.rules.rule_engine import RuleEngine, RuleEngineError
 logger = logging.getLogger(__name__)
 
 
+class _ChartAccounts:
+    """Restreint un dépôt de comptes au plan comptable de l'entreprise : le moteur
+    de règles demande « le compte 607 » et obtient celui de SON plan."""
+
+    def __init__(self, repository: AccountRepository, chart_id: int | None):
+        self.repository = repository
+        self.chart_id = chart_id
+
+    def get_by_code(self, code: str):
+        return self.repository.get_by_code(code, self.chart_id)
+
+
 class ProcessInvoicePipelineUseCase:
     def __init__(self, invoices: InvoiceRepository, entries: EntryRepository,
                  accounts: AccountRepository, suppliers: SupplierRepository,
@@ -36,7 +49,9 @@ class ProcessInvoicePipelineUseCase:
                  ocr: OcrOrchestrator | None = None, classifier=None,
                  account_code_by_id: dict[int, str] | None = None,
                  companies: CompanyRepository | None = None,
-                 rates: ExchangeRateRepository | None = None):
+                 rates: ExchangeRateRepository | None = None,
+                 charts: ChartRepository | None = None):
+        self.charts = charts
         self.companies = companies
         self.rates = rates
         self.invoices = invoices
@@ -78,6 +93,16 @@ class ProcessInvoicePipelineUseCase:
                     invoice_id)
 
     def _run(self, invoice: Invoice) -> None:
+        company = self.companies.get_by_id(invoice.company_id) if self.companies else None
+        chart_id = company.chart_id if company else None
+        if company is not None and chart_id is None:
+            invoice.status = InvoiceStatus.ERROR
+            invoice.error_message = (
+                "Aucun plan comptable choisi pour l'entreprise : l'administrateur doit en choisir "
+                "un (Mon profil → Plan comptable), puis relancer le traitement.")
+            self.invoices.update(invoice)
+            return
+
         # Relance : repart d'un état propre (résultats et propositions précédents).
         self.invoices.reset_pipeline_results(invoice.id)
         self.entries.delete_unvalidated_by_invoice(invoice.id)
@@ -192,9 +217,9 @@ class ProcessInvoicePipelineUseCase:
         # --- 7. Moteur de règles + suggestion des comptes -----------------------
         invoice.current_step = PipelineStep.RULE_ENGINE
         self.invoices.update(invoice)
-        rule = self.rules.get_active_for_operation(classification.operation_type.value)
+        rule = self.rules.get_active_for_operation(classification.operation_type.value, chart_id)
         if rule is None:
-            rule = self.rules.get_active_for_operation("ACHAT_SERVICES")  # défaut prudent
+            rule = self.rules.get_active_for_operation("ACHAT_SERVICES", chart_id)  # défaut prudent
         if rule is None:
             invoice.status = InvoiceStatus.ERROR
             invoice.error_message = "Aucune règle comptable active applicable."
@@ -206,8 +231,11 @@ class ProcessInvoicePipelineUseCase:
             ht, vat, ttc = convert_amounts(ht, vat, ttc, rate)
         entry_amounts = {"HT": ht, "VAT": vat, "TTC": ttc}
 
-        engine = RuleEngine(self.accounts,
-                            ConstrainedAccountSuggester(self.account_code_by_id))
+        chart = self.charts.get_by_id(chart_id) if self.charts and chart_id else None
+        engine = RuleEngine(_ChartAccounts(self.accounts, chart_id),
+                            ConstrainedAccountSuggester(
+                                self.account_code_by_id,
+                                keywords_for_chart(chart.code if chart else None)))
         document_label = "Avoir" if invoice.document_type == DocumentType.AVOIR else "Facture"
         label = f"{document_label} {invoice.invoice_number or invoice.id} — " \
                 f"{supplier.name if supplier else 'fournisseur inconnu'}"
@@ -249,11 +277,13 @@ class ProcessInvoicePipelineUseCase:
         return company.base_currency if company else self.settings.default_currency
 
     def _lookup_rate(self, invoice: Invoice, base_currency: str) -> Decimal | None:
-        """Taux paramétré par l'entreprise à la date de la facture (à défaut, aujourd'hui)."""
+        """Taux paramétré par l'entreprise à la date de la facture (à défaut, aujourd'hui) ;
+        sans taux antérieur, le plus proche taux enregistré (modifiable sur la facture)."""
         if self.rates is None:
             return None
         found = self.rates.find_applicable(
-            invoice.company_id, invoice.currency, invoice.invoice_date or date.today())
+            invoice.company_id, invoice.currency, invoice.invoice_date or date.today(),
+            allow_later=True)
         return found.rate if found else None
 
     def _apply_entities(self, invoice: Invoice, entities: list[ExtractedEntity]) -> None:

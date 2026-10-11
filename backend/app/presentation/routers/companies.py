@@ -9,12 +9,12 @@ from app.core.dependencies import get_current_user, require_admin, require_compa
 from app.domain.entities import Company, Role, User
 from app.infrastructure.db.database import get_db
 from app.infrastructure.db.repositories import (
-    MySQLAuditRepository, MySQLCompanyRepository, MySQLEntryRepository,
+    MySQLAuditRepository, MySQLChartRepository, MySQLCompanyRepository, MySQLEntryRepository,
     MySQLExchangeRateRepository,
 )
 from app.presentation.schemas import (
-    CompanyActiveUpdate, CompanyBrandingUpdate, CompanyCreate, CompanyOut, CurrencyUpdate,
-    ExchangeRateIn, ExchangeRateOut,
+    ChartChoice, CompanyActiveUpdate, CompanyBrandingUpdate, CompanyCreate, CompanyOut,
+    CurrencyUpdate, ExchangeRateIn, ExchangeRateOut,
 )
 
 router = APIRouter(prefix="/api/companies", tags=["Entreprises"])
@@ -25,7 +25,7 @@ def _to_out(company: Company) -> CompanyOut:
                       stat=company.stat, address=company.address,
                       is_active=company.is_active,
                       logo_version=branding.image_version(company.logo_path),
-                      base_currency=company.base_currency)
+                      base_currency=company.base_currency, chart_id=company.chart_id)
 
 
 @router.post("", response_model=CompanyOut, status_code=201,
@@ -184,3 +184,27 @@ def delete_rate(company_id: int, rate_id: int, user: User = Depends(require_comp
     MySQLAuditRepository(db).log(user.id, "EXCHANGE_RATE_DELETED", "company", company_id,
                                  old_value={"rate_id": rate_id})
     return Response(status_code=204)
+
+
+# ------------------------------------------------------- Plan comptable
+@router.put("/{company_id}/chart", response_model=CompanyOut,
+            summary="Choisir le plan comptable de l'entreprise (Admin d'entreprise ou Admin)")
+def choose_chart(company_id: int, payload: ChartChoice,
+                 user: User = Depends(require_company_admin), db: Session = Depends(get_db)):
+    company = _company_for_editing(company_id, user, db)
+    chart = MySQLChartRepository(db).get_by_id(payload.chart_id)
+    if chart is None:
+        raise HTTPException(status_code=404, detail="Plan comptable introuvable")
+    if payload.chart_id == company.chart_id:
+        return _to_out(company)
+    if MySQLEntryRepository(db).count_for_company(company_id) > 0:
+        # Les écritures existantes pointent vers les comptes de l'ancien plan.
+        raise HTTPException(
+            status_code=409,
+            detail="Le plan comptable ne peut plus être changé : des écritures existent déjà "
+                   "avec le plan actuel.")
+    updated = MySQLCompanyRepository(db).set_chart(company_id, payload.chart_id)
+    MySQLAuditRepository(db).log(user.id, "COMPANY_CHART_CHOSEN", "company", company_id,
+                                 old_value={"chart_id": company.chart_id},
+                                 new_value={"chart_id": payload.chart_id, "chart": chart.code})
+    return _to_out(updated)

@@ -188,3 +188,7 @@ INSERT INTO accounting_rules (code, operation_type, description, template, prior
    JSON_OBJECT('role','tva','side','D','amount','VAT','default_account','4456','ml_refinable', FALSE),
    JSON_OBJECT('role','tiers','side','C','amount','TTC','default_account','404','ml_refinable', FALSE)
  )), 100);
+
+-- Rattache comptes et regles ci-dessus au plan malgache (cree par schema.sql)
+UPDATE accounts SET chart_id = (SELECT id FROM charts WHERE code = 'PCG_MG_2005') WHERE chart_id IS NULL;
+UPDATE accounting_rules SET chart_id = (SELECT id FROM charts WHERE code = 'PCG_MG_2005') WHERE chart_id IS NULL;

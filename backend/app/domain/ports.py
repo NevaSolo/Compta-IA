@@ -10,7 +10,7 @@ from datetime import date
 from decimal import Decimal
 
 from app.domain.entities import (
-    Account, Company, ExchangeRate, ExtractedEntity, Invoice, JournalEntry, OperationType,
+    Account, Chart, Company, ExchangeRate, ExtractedEntity, Invoice, JournalEntry, OperationType,
     Supplier, User,
 )
 
@@ -105,6 +105,15 @@ class CompanyRepository(ABC):
     def update_branding(self, company_id: int, **fields) -> Company | None: ...
     @abstractmethod
     def set_base_currency(self, company_id: int, currency: str) -> Company | None: ...
+    @abstractmethod
+    def set_chart(self, company_id: int, chart_id: int | None) -> Company | None: ...
+
+
+class ChartRepository(ABC):
+    @abstractmethod
+    def list_active(self) -> list[Chart]: ...
+    @abstractmethod
+    def get_by_id(self, chart_id: int) -> Chart | None: ...
 
 
 class ExchangeRateRepository(ABC):
@@ -116,7 +125,8 @@ class ExchangeRateRepository(ABC):
     @abstractmethod
     def delete(self, company_id: int, rate_id: int) -> bool: ...
     @abstractmethod
-    def find_applicable(self, company_id: int, currency: str, on_date: date) -> ExchangeRate | None: ...
+    def find_applicable(self, company_id: int, currency: str, on_date: date,
+                        allow_later: bool = False) -> ExchangeRate | None: ...
 
 
 class UserRepository(ABC):
@@ -146,9 +156,11 @@ class SupplierRepository(ABC):
 
 class AccountRepository(ABC):
     @abstractmethod
-    def get_by_code(self, code: str) -> Account | None: ...
+    def get_by_code(self, code: str, chart_id: int | None = None) -> Account | None: ...
     @abstractmethod
-    def list_active(self) -> list[Account]: ...
+    def list_active(self, chart_id: int | None = None) -> list[Account]: ...
+    @abstractmethod
+    def get_by_code_for_company(self, code: str, company_id: int) -> Account | None: ...
 
 
 class InvoiceRepository(ABC):
@@ -203,7 +215,7 @@ class EntryRepository(ABC):
 
 class RuleRepository(ABC):
     @abstractmethod
-    def get_active_for_operation(self, operation_type: str) -> dict | None: ...
+    def get_active_for_operation(self, operation_type: str, chart_id: int | None = None) -> dict | None: ...
     @abstractmethod
     def list_all(self) -> list[dict]: ...
 

@@ -227,12 +227,30 @@ class TestPipelineConversion:
         by_account = {l["account_code"]: Decimal(l["debit"] or 0) + Decimal(l["credit"] or 0) for l in entry["lines"]}
         assert by_account == {"607": Decimal("4950000"), "4456": Decimal("990000"), "401": Decimal("5940000")}
 
-    def test_a_future_rate_is_not_used_for_a_past_invoice(
+    def test_a_later_rate_is_used_when_no_earlier_one_exists(
             self, client, auth_headers, boss_headers, company, pipeline_env):
+        # Taux saisi « aujourd'hui » pour une facture plus ancienne : à défaut de taux
+        # antérieur, on prend le plus proche au lieu de bloquer le traitement.
         client.post(f"/api/companies/{company.id}/rates", headers=boss_headers,
                     json={"currency": "EUR", "rate": "5100", "effective_date": "2026-12-01"})
         invoice = client.get(f"/api/invoices/{_upload(client, auth_headers)}", headers=auth_headers).json()
-        assert invoice["status"] == "ERROR"
+        assert invoice["status"] == "ENTRIES_PROPOSED" and Decimal(invoice["exchange_rate"]) == Decimal("5100")
+
+    def test_an_earlier_rate_wins_over_a_later_one(
+            self, client, auth_headers, boss_headers, company, pipeline_env):
+        for date_, rate in (("2026-09-01", "4900"), ("2026-12-01", "5100")):
+            client.post(f"/api/companies/{company.id}/rates", headers=boss_headers,
+                        json={"currency": "EUR", "rate": rate, "effective_date": date_})
+        invoice = client.get(f"/api/invoices/{_upload(client, auth_headers)}", headers=auth_headers).json()
+        assert Decimal(invoice["exchange_rate"]) == Decimal("4900")  # facture du 05/10/2026
+
+    def test_the_nearest_later_rate_is_chosen(
+            self, client, auth_headers, boss_headers, company, pipeline_env):
+        for date_, rate in (("2027-03-01", "5300"), ("2026-12-01", "5100")):
+            client.post(f"/api/companies/{company.id}/rates", headers=boss_headers,
+                        json={"currency": "EUR", "rate": rate, "effective_date": date_})
+        invoice = client.get(f"/api/invoices/{_upload(client, auth_headers)}", headers=auth_headers).json()
+        assert Decimal(invoice["exchange_rate"]) == Decimal("5100")
 
     def test_rate_entered_on_the_invoice_then_reprocess(self, client, auth_headers, pipeline_env):
         invoice_id = _upload(client, auth_headers)

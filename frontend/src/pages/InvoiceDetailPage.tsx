@@ -69,7 +69,11 @@ export function InvoiceDetailPage() {
     queryKey: ["entries", invoiceId], queryFn: () => getEntriesOfInvoice(invoiceId),
     enabled: isPipelineDone, retry: false,
   });
-  const accountsQuery = useQuery({ queryKey: ["accounts"], queryFn: listAccounts });
+  const accountsQuery = useQuery({
+    queryKey: ["accounts", invoiceQuery.data?.company_id],
+    queryFn: () => listAccounts(invoiceQuery.data?.company_id),
+    enabled: invoiceQuery.data !== undefined,
+  });
   const sourceFile = useInvoiceFileUrl(invoiceId);
 
   const rejectMutation = useMutation({
@@ -405,8 +409,8 @@ function EntryPanel({
             <th className="pb-2 font-medium">Compte</th>
             <th className="pb-2 font-medium">Libellé</th>
             <th className="pb-2 font-medium text-right">Débit</th>
-            <th className="pb-2 font-medium text-right">Crédit</th>
-            <th className="pb-2 font-medium">Confiance ML</th>
+            <th className="pb-2 pr-2 font-medium text-right">Crédit</th>
+            <th className="pb-2 pl-4 font-medium">Confiance ML</th>
           </tr>
         </thead>
         <tbody>
@@ -419,7 +423,7 @@ function EntryPanel({
                   <select
                     value={line.account_code}
                     onChange={(e) => updateLine(i, "account_code", e.target.value)}
-                    className="w-28 rounded-md border border-slate-300 px-2 py-1 text-sm"
+                    className="w-60 rounded-md border border-slate-300 px-2 py-1 text-sm"
                   >
                     {(() => {
                       const current = accounts.find((a) => a.code === line.account_code);

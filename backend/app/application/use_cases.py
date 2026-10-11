@@ -98,7 +98,8 @@ class CorrectEntryUseCase:
                 raise UseCaseError(f"Ligne {correction.get('line_id')} inconnue")
 
             if field == "account_code":
-                account = self.accounts.get_by_code(str(new_value))
+                # Le compte doit appartenir au plan comptable de l'entreprise de l'écriture
+                account = self.accounts.get_by_code_for_company(str(new_value), entry.company_id)
                 if account is None:
                     raise UseCaseError(f"Compte {new_value} absent du plan comptable")
                 old = line.account_code

@@ -10,7 +10,7 @@ from sqlalchemy.pool import StaticPool
 from app.core.security import hash_password
 from app.infrastructure.db.database import Base, get_db
 from app.infrastructure.db.models import (
-    AccountModel, AccountingRuleModel, CompanyModel, UserModel,
+    AccountModel, AccountingRuleModel, ChartModel, CompanyModel, UserModel,
 )
 from app.main import app
 
@@ -40,11 +40,24 @@ def client(db_session):
 
 
 @pytest.fixture()
-def company(db_session):
+def chart(db_session):
+    """Plan comptable de test (équivalent du PCG malgache) : les entreprises de test
+    en ont un, comme toute entreprise en production (choix obligatoire)."""
+    row = db_session.query(ChartModel).filter_by(code="PCG_TEST").first()
+    if row is None:
+        row = ChartModel(code="PCG_TEST", name="Plan de test", country="MG", version="1")
+        db_session.add(row)
+        db_session.commit()
+        db_session.refresh(row)
+    return row
+
+
+@pytest.fixture()
+def company(db_session, chart):
     """L'unique entreprise utilisée par la plupart des tests — comptable_user
     y est rattaché, ce qui rend le cloisonnement multi-tenant transparent
     pour tous les tests mono-entreprise existants."""
-    row = CompanyModel(name="Entreprise Test")
+    row = CompanyModel(name="Entreprise Test", chart_id=chart.id)
     db_session.add(row)
     db_session.commit()
     db_session.refresh(row)
@@ -83,20 +96,20 @@ def auth_headers(client, comptable_user):
 
 
 @pytest.fixture()
-def minimal_chart_of_accounts(db_session):
+def minimal_chart_of_accounts(db_session, chart):
     """Un sous-ensemble du plan comptable suffisant pour générer une écriture
     d'achat de marchandises de bout en bout."""
     accounts = [
-        AccountModel(code="607", label="Achats de marchandises", account_class=6,
+        AccountModel(chart_id=chart.id, code="607", label="Achats de marchandises", account_class=6,
                     normal_balance="DEBIT"),
-        AccountModel(code="4456", label="TVA déductible", account_class=4,
+        AccountModel(chart_id=chart.id, code="4456", label="TVA déductible", account_class=4,
                     normal_balance="DEBIT"),
-        AccountModel(code="401", label="Fournisseurs", account_class=4,
+        AccountModel(chart_id=chart.id, code="401", label="Fournisseurs", account_class=4,
                     normal_balance="CREDIT"),
     ]
     db_session.add_all(accounts)
     db_session.add(AccountingRuleModel(
-        code="R-ACHAT-MARCH-01", operation_type="ACHAT_MARCHANDISES",
+        chart_id=chart.id, code="R-ACHAT-MARCH-01", operation_type="ACHAT_MARCHANDISES",
         description="Achat de marchandises", priority=100,
         template={"lines": [
             {"role": "charge", "side": "D", "amount": "HT",

@@ -12,6 +12,19 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.infrastructure.db.database import Base
 
 
+class ChartModel(Base):
+    """Plan comptable (catalogue) : regroupe des comptes et des règles d'écriture."""
+    __tablename__ = "charts"
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True)
+    code: Mapped[str] = mapped_column(String(30), unique=True)
+    name: Mapped[str] = mapped_column(String(150))
+    country: Mapped[str | None] = mapped_column(String(2), nullable=True)
+    version: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    description: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class CompanyModel(Base):
     __tablename__ = "companies"
     id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True)
@@ -21,6 +34,8 @@ class CompanyModel(Base):
     address: Mapped[str | None] = mapped_column(String(500), nullable=True)
     logo_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     base_currency: Mapped[str] = mapped_column(String(3), default="MGA")
+    chart_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("charts.id", ondelete="RESTRICT"), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
@@ -44,8 +59,11 @@ class UserModel(Base):
 
 class AccountModel(Base):
     __tablename__ = "accounts"
+    __table_args__ = (UniqueConstraint("chart_id", "code", name="uq_accounts_chart_code"),)
     id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True)
-    code: Mapped[str] = mapped_column(String(10), unique=True)
+    chart_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("charts.id", ondelete="RESTRICT"), nullable=True)
+    code: Mapped[str] = mapped_column(String(10))
     label: Mapped[str] = mapped_column(String(255))
     account_class: Mapped[int] = mapped_column(SmallInteger)
     parent_code: Mapped[str | None] = mapped_column(String(10), nullable=True)
@@ -167,6 +185,8 @@ class ClassificationModel(Base):
 class AccountingRuleModel(Base):
     __tablename__ = "accounting_rules"
     id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True)
+    chart_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("charts.id", ondelete="RESTRICT"), nullable=True)
     code: Mapped[str] = mapped_column(String(20), unique=True)
     operation_type: Mapped[str] = mapped_column(
         Enum("ACHAT_MARCHANDISES", "ACHAT_SERVICES", "ACHAT_IMMOBILISATION", "AUTRE"))

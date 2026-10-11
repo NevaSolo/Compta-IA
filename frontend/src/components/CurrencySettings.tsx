@@ -123,6 +123,13 @@ export function CurrencySettings({ companyId }: { companyId: number }) {
             Ajouter
           </button>
         </form>
+        {Number(form.rate) > 0 && Number(form.rate) < 0.01 && (
+          <p className="mt-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            Ce taux est très petit : saisissez-le avec ses 6 décimales (par exemple 0.000202 et non 0.0002),
+            sinon chaque conversion perd en précision. Vous pouvez aussi garder comme devise de l'entreprise
+            celle qui a la plus grande valeur unitaire.
+          </p>
+        )}
       </div>
 
       <ConfirmDialog

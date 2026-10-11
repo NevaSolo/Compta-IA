@@ -11,6 +11,27 @@ CREATE DATABASE IF NOT EXISTS compta_ia_db
 USE compta_ia_db;
 
 -- ------------------------------------------------------------
+-- Plans comptables (un plan = des comptes + des regles d'ecriture ;
+-- chaque entreprise pointe vers le sien, choix obligatoire)
+-- ------------------------------------------------------------
+CREATE TABLE charts (
+  id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  code        VARCHAR(30)     NOT NULL,
+  name        VARCHAR(150)    NOT NULL,
+  country     CHAR(2)         NULL,
+  version     VARCHAR(20)     NULL,
+  description VARCHAR(500)    NULL,
+  is_active   TINYINT(1)      NOT NULL DEFAULT 1,
+  created_at  DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_charts_code (code)
+) ENGINE=InnoDB ROW_FORMAT=DYNAMIC;
+
+INSERT INTO charts (code, name, country, version, description) VALUES
+ ('PCG_MG_2005', 'Plan comptable général malgache', 'MG', '2005',
+  'PCG malgache 2005 (décret n°2004-272), plan de comptes recommandé.');
+
+-- ------------------------------------------------------------
 -- 0. Entreprises (multi-tenant : une base partagée, cloisonnee
 --    par company_id sur users/suppliers/invoices/journal_entries)
 -- ------------------------------------------------------------
@@ -22,9 +43,13 @@ CREATE TABLE companies (
   address        VARCHAR(500)    NULL,
   logo_path      VARCHAR(500)    NULL,
   base_currency  CHAR(3)         NOT NULL DEFAULT 'MGA',
+  -- NULL = plan comptable pas encore choisi (obligatoire avant tout import)
+  chart_id       BIGINT UNSIGNED NULL,
   is_active      TINYINT(1)      NOT NULL DEFAULT 1,
   created_at     DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (id)
+  PRIMARY KEY (id),
+  CONSTRAINT fk_companies_chart FOREIGN KEY (chart_id)
+    REFERENCES charts(id) ON DELETE RESTRICT
 ) ENGINE=InnoDB ROW_FORMAT=DYNAMIC;
 
 -- ------------------------------------------------------------
@@ -52,10 +77,11 @@ CREATE TABLE users (
 ) ENGINE=InnoDB ROW_FORMAT=DYNAMIC;
 
 -- ------------------------------------------------------------
--- 2. Plan comptable (PCG malgache 2005)
+-- 2. Comptes (appartiennent a un plan comptable)
 -- ------------------------------------------------------------
 CREATE TABLE accounts (
   id             BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  chart_id       BIGINT UNSIGNED NULL,
   code           VARCHAR(10)     NOT NULL,
   label          VARCHAR(255)    NOT NULL,
   account_class  TINYINT UNSIGNED NOT NULL,
@@ -64,8 +90,10 @@ CREATE TABLE accounts (
   is_active      TINYINT(1)      NOT NULL DEFAULT 1,
   created_at     DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
-  UNIQUE KEY uq_accounts_code (code),
+  UNIQUE KEY uq_accounts_chart_code (chart_id, code),
   KEY idx_accounts_class (account_class),
+  CONSTRAINT fk_accounts_chart FOREIGN KEY (chart_id)
+    REFERENCES charts(id) ON DELETE RESTRICT,
   CONSTRAINT chk_account_class CHECK (account_class BETWEEN 1 AND 7)
 ) ENGINE=InnoDB ROW_FORMAT=DYNAMIC;
 
@@ -227,6 +255,7 @@ CREATE TABLE classifications (
 -- ------------------------------------------------------------
 CREATE TABLE accounting_rules (
   id             BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  chart_id       BIGINT UNSIGNED NULL,
   code           VARCHAR(20)     NOT NULL,
   operation_type ENUM('ACHAT_MARCHANDISES','ACHAT_SERVICES',
                       'ACHAT_IMMOBILISATION','AUTRE') NOT NULL,
@@ -237,7 +266,9 @@ CREATE TABLE accounting_rules (
   created_at     DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   UNIQUE KEY uq_rules_code (code),
-  KEY idx_rules_operation (operation_type, is_active, priority)
+  KEY idx_rules_operation (operation_type, is_active, priority),
+  CONSTRAINT fk_rules_chart FOREIGN KEY (chart_id)
+    REFERENCES charts(id) ON DELETE RESTRICT
 ) ENGINE=InnoDB ROW_FORMAT=DYNAMIC;
 
 -- ------------------------------------------------------------

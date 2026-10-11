@@ -85,6 +85,7 @@ class Company:
     is_active: bool = True
     logo_path: str | None = None  # fichier dans le stockage « branding »
     base_currency: str = "MGA"    # devise de tenue de comptabilité
+    chart_id: int | None = None   # plan comptable choisi (None = pas encore choisi)
 
 
 @dataclass
@@ -228,3 +229,15 @@ class ExchangeRate:
     currency: str
     rate: Decimal
     effective_date: date
+
+
+@dataclass
+class Chart:
+    """Plan comptable du catalogue (ex. PCG malgache 2005, PCG français)."""
+    id: int | None
+    code: str
+    name: str
+    country: str | None = None
+    version: str | None = None
+    description: str | None = None
+    accounts_count: int = 0

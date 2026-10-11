@@ -148,8 +148,11 @@ class ConstrainedAccountSuggester(AccountSuggester):
     2. mots-clés du libellé → compte (0,75) ;
     3. compte par défaut de la règle (0,50)."""
 
-    def __init__(self, account_code_by_id: dict[int, str] | None = None):
+    def __init__(self, account_code_by_id: dict[int, str] | None = None,
+                 keywords: dict[str, list[str]] | None = None):
         self.account_code_by_id = account_code_by_id or {}
+        # Mots-clés propres au plan comptable de l'entreprise (défaut : plan malgache)
+        self.keywords = keywords if keywords is not None else ACCOUNT_KEYWORDS
 
     def suggest(self, text: str, supplier: Supplier | None,
                 candidates: list[str], default: str) -> AccountSuggestion:
@@ -163,7 +166,7 @@ class ConstrainedAccountSuggester(AccountSuggester):
         lowered = text.lower()
         best_code, best_hits = None, 0
         for code in candidates:
-            hits = sum(1 for kw in ACCOUNT_KEYWORDS.get(code, []) if kw in lowered)
+            hits = sum(1 for kw in self.keywords.get(code, []) if kw in lowered)
             if hits > best_hits:
                 best_code, best_hits = code, hits
         if best_code:

@@ -15,7 +15,7 @@ from app.domain.entities import InvoiceStatus, Role, User
 from app.infrastructure.db.database import get_db
 from app.infrastructure.db.repositories import (
     MySQLAccountRepository, MySQLAuditRepository, MySQLCompanyRepository,
-    MySQLEntryRepository, MySQLExchangeRateRepository, MySQLInvoiceRepository,
+    MySQLChartRepository, MySQLEntryRepository, MySQLExchangeRateRepository, MySQLInvoiceRepository,
     MySQLRuleRepository, MySQLSupplierRepository,
 )
 from app.infrastructure.nlp.extractor import HybridExtractor
@@ -66,7 +66,8 @@ def _run_pipeline(invoice_id: int, bind) -> None:
             invoices=MySQLInvoiceRepository(db), entries=MySQLEntryRepository(db),
             accounts=MySQLAccountRepository(db), suppliers=MySQLSupplierRepository(db),
             rules=MySQLRuleRepository(db), extractor=HybridExtractor(),
-            companies=MySQLCompanyRepository(db), rates=MySQLExchangeRateRepository(db))
+            companies=MySQLCompanyRepository(db), rates=MySQLExchangeRateRepository(db),
+            charts=MySQLChartRepository(db))
         pipeline.execute(invoice_id)
     finally:
         db.close()
@@ -81,6 +82,12 @@ async def upload_invoice(background_tasks: BackgroundTasks,
     if user.company_id is None:
         raise HTTPException(status_code=403,
                             detail="Ce compte n'est rattaché à aucune entreprise")
+    company = MySQLCompanyRepository(db).get_by_id(user.company_id)
+    if company is None or company.chart_id is None:
+        raise HTTPException(
+            status_code=409,
+            detail="Aucun plan comptable choisi : l'administrateur de l'entreprise doit en "
+                   "choisir un (Mon profil → Plan comptable) avant d'importer des factures.")
     content = await file.read()
     try:
         invoice = UploadInvoiceUseCase(

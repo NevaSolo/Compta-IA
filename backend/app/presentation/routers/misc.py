@@ -9,21 +9,39 @@ from app.domain.entities import Role, User
 from app.infrastructure.db import models as m
 from app.infrastructure.db.database import get_db
 from app.infrastructure.db.repositories import (
-    MySQLAccountRepository, MySQLAuditRepository, MySQLInvoiceRepository,
+    MySQLAccountRepository, MySQLAuditRepository, MySQLChartRepository, MySQLCompanyRepository,
+    MySQLInvoiceRepository,
     MySQLSupplierRepository,
 )
 from app.presentation.routers.invoices import _to_out
-from app.presentation.schemas import AccountOut, DashboardStats
+from app.presentation.schemas import AccountOut, ChartOut, DashboardStats
 
 router = APIRouter(prefix="/api", tags=["Référentiels & pilotage"])
 
 
+@router.get("/charts", response_model=list[ChartOut],
+            summary="Plans comptables disponibles (catalogue)")
+def list_charts(_: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return [ChartOut(id=c.id, code=c.code, name=c.name, country=c.country, version=c.version,
+                     description=c.description, accounts_count=c.accounts_count)
+            for c in MySQLChartRepository(db).list_active()]
+
+
 @router.get("/accounts", response_model=list[AccountOut],
-            summary="Plan comptable (PCG malgache 2005)")
-def list_accounts(_: User = Depends(get_current_user), db: Session = Depends(get_db)):
+            summary="Comptes du plan comptable de l'entreprise")
+def list_accounts(company_id: int | None = None, user: User = Depends(get_current_user),
+                  db: Session = Depends(get_db)):
+    """Comptes du plan de l'entreprise de l'appelant. L'ADMIN plateforme peut cibler une
+    entreprise (`company_id`) ; tout autre rôle est cantonné à la sienne."""
+    target = user.company_id
+    if user.role == Role.ADMIN and company_id is not None:
+        target = company_id
+    company = MySQLCompanyRepository(db).get_by_id(target) if target else None
+    if company is None or company.chart_id is None:
+        return []  # pas d'entreprise ou plan pas encore choisi : aucun compte à proposer
     return [AccountOut(code=a.code, label=a.label, account_class=a.account_class,
                        normal_balance=a.normal_balance)
-            for a in MySQLAccountRepository(db).list_active()]
+            for a in MySQLAccountRepository(db).list_active(company.chart_id)]
 
 
 @router.get("/dashboard", response_model=DashboardStats,

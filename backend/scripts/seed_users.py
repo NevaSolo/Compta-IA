@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.core.security import hash_password  # noqa: E402
 from app.infrastructure.db.database import SessionLocal  # noqa: E402
-from app.infrastructure.db.models import CompanyModel, UserModel  # noqa: E402
+from app.infrastructure.db.models import ChartModel, CompanyModel, UserModel  # noqa: E402
 from sqlalchemy import select  # noqa: E402
 
 DEMO_COMPANY_NAME = "Entreprise Démonstration"
@@ -31,6 +31,13 @@ def main() -> None:
             print(f"+ Entreprise « {DEMO_COMPANY_NAME} » créée (id={company.id})")
         else:
             print(f"= Entreprise « {DEMO_COMPANY_NAME} » existe déjà (id={company.id})")
+
+        # L'entreprise de démonstration démarre avec le plan malgache (les nouvelles
+        # entreprises, elles, doivent choisir leur plan : choix obligatoire).
+        if company.chart_id is None:
+            chart = db.scalar(select(ChartModel).where(ChartModel.code == "PCG_MG_2005"))
+            if chart is not None:
+                company.chart_id = chart.id
 
         for email, password, full_name, role, in_demo_company in USERS:
             if db.scalar(select(UserModel).where(UserModel.email == email)):
