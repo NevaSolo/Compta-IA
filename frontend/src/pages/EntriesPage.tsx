@@ -1,14 +1,23 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { listEntries } from "@/services/entries";
-import { Receipt } from "lucide-react";
+import { listEntries, validateEntriesBatch } from "@/services/entries";
+import { CheckCheck, Receipt } from "lucide-react";
+import { apiErrorMessage } from "@/services/api";
+import { useToast } from "@/context/ToastContext";
 import { ConfidenceBadge } from "@/components/ConfidenceBadge";
 import { ExportButtons } from "@/components/ExportButtons";
 import { PageHeader } from "@/components/PageHeader";
 import { EmptyState } from "@/components/EmptyState";
 import { Skeleton } from "@/components/Skeleton";
-import type { EntryStatus } from "@/types";
+import type { EntryStatus, JournalEntry } from "@/types";
+
+const RELIABLE_CONFIDENCE = 0.8; // seuil « vert » du badge de confiance
+
+const isValidatable = (e: JournalEntry) => e.status !== "VALIDATED";
+const isReliable = (e: JournalEntry) =>
+  isValidatable(e) && (e.confidence_score ?? 0) >= RELIABLE_CONFIDENCE
+  && Math.abs(Number(e.total_debit) - Number(e.total_credit)) < 0.005;
 
 const STATUS_FILTERS: { value: string; label: string }[] = [
   { value: "", label: "Tous les statuts" },
@@ -37,11 +46,55 @@ export function EntriesPage() {
   const [status, setStatus] = useState("");
   const [page, setPage] = useState(1);
   const size = 20;
+  const queryClient = useQueryClient();
+  const { notify } = useToast();
+  const [selected, setSelected] = useState<Set<number>>(new Set());
 
   const { data, isLoading } = useQuery({
     queryKey: ["entries", status, page],
     queryFn: () => listEntries(status || undefined, page, size),
   });
+
+  const batchMutation = useMutation({
+    mutationFn: (ids: number[]) => validateEntriesBatch(ids),
+    onSuccess: (result) => {
+      if (result.failed === 0) {
+        notify("success", `${result.validated} écriture(s) validée(s).`);
+      } else {
+        const first = result.results.find((r) => !r.ok);
+        notify("error", `${result.validated} validée(s), ${result.failed} refusée(s) : ${first?.error ?? "erreur"}`);
+      }
+      setSelected(new Set());
+      for (const key of ["entries", "invoices", "dashboard"]) {
+        queryClient.invalidateQueries({ queryKey: [key] });
+      }
+    },
+    onError: (err) => notify("error", apiErrorMessage(err)),
+  });
+
+  const items = data?.items ?? [];
+  const reliableIds = items.filter(isReliable).map((e) => e.id);
+  const allReliableSelected = reliableIds.length > 0 && reliableIds.every((id) => selected.has(id));
+
+  function toggle(id: number) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+  function toggleReliable() {
+    setSelected(allReliableSelected ? new Set() : new Set(reliableIds));
+  }
+  function validateSelected() {
+    const count = selected.size;
+    if (window.confirm(`Valider définitivement ${count} écriture(s) ? Cette action est irréversible.`)) {
+      batchMutation.mutate([...selected]);
+    }
+  }
+  function changeFilter(value: string) {
+    setStatus(value); setPage(1); setSelected(new Set());
+  }
 
   const totalPages = data ? Math.max(1, Math.ceil(data.total / size)) : 1;
 
@@ -53,7 +106,7 @@ export function EntriesPage() {
         {STATUS_FILTERS.map((filter) => (
           <button
             key={filter.value}
-            onClick={() => { setStatus(filter.value); setPage(1); }}
+            onClick={() => changeFilter(filter.value)}
             className={`chip ${
               status === filter.value
                 ? "bg-brand-600 text-white shadow-sm"
@@ -64,6 +117,15 @@ export function EntriesPage() {
           </button>
         ))}
       </div>
+
+      {reliableIds.length > 0 && (
+        <button type="button" onClick={toggleReliable} className="btn-secondary w-full sm:w-auto">
+          <CheckCheck size={16} />
+          {allReliableSelected
+            ? "Désélectionner les écritures fiables"
+            : `Sélectionner les ${reliableIds.length} écriture(s) fiable(s) (≥ 80 %, équilibrées)`}
+        </button>
+      )}
 
       <div className="space-y-3">
         {isLoading && Array.from({ length: 3 }).map((_, i) => (
@@ -77,6 +139,13 @@ export function EntriesPage() {
           <div key={entry.id} className="card overflow-hidden">
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 bg-slate-50 px-4 py-3 md:px-5">
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                {isValidatable(entry) && (
+                  <input
+                    type="checkbox" checked={selected.has(entry.id)} onChange={() => toggle(entry.id)}
+                    aria-label={`Sélectionner l'écriture ${entry.label}`}
+                    className="h-5 w-5 rounded border-slate-300 text-brand-600"
+                  />
+                )}
                 <Link to={`/factures/${entry.invoice_id}`} className="font-medium text-brand-700 hover:underline">
                   {entry.label}
                 </Link>
@@ -161,16 +230,30 @@ export function EntriesPage() {
         )}
       </div>
 
+      {selected.size > 0 && (
+        <div className="fixed inset-x-4 bottom-20 z-40 flex items-center justify-between gap-3 rounded-xl bg-slate-900 px-4 py-3 text-white shadow-lg animate-slide-up md:inset-x-auto md:bottom-6 md:left-1/2 md:min-w-[24rem] md:-translate-x-1/2">
+          <span className="text-sm">{selected.size} sélectionnée(s)</span>
+          <div className="flex gap-2">
+            <button type="button" onClick={() => setSelected(new Set())}
+                    className="btn rounded-md px-3 text-slate-200 hover:bg-slate-800">Annuler</button>
+            <button type="button" onClick={validateSelected} disabled={batchMutation.isPending}
+                    className="btn-success">
+              {batchMutation.isPending ? "Validation…" : "Valider"}
+            </button>
+          </div>
+        </div>
+      )}
+
       {data && data.total > size && (
         <div className="flex items-center justify-between text-sm text-slate-600">
           <span>Page {page} / {totalPages} — {data.total} écriture(s)</span>
           <div className="flex gap-2">
             <button
-              disabled={page <= 1} onClick={() => setPage((p) => p - 1)}
+              disabled={page <= 1} onClick={() => { setPage((p) => p - 1); setSelected(new Set()); }}
               className="btn-secondary"
             >Précédent</button>
             <button
-              disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}
+              disabled={page >= totalPages} onClick={() => { setPage((p) => p + 1); setSelected(new Set()); }}
               className="btn-secondary"
             >Suivant</button>
           </div>

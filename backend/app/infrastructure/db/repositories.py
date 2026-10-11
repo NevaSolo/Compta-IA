@@ -5,7 +5,7 @@ from datetime import datetime
 from decimal import Decimal
 
 from rapidfuzz import fuzz
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.domain import entities as dom
@@ -240,16 +240,55 @@ class MySQLInvoiceRepository(ports.InvoiceRepository):
         return _invoice_to_domain(row) if row else None
 
     def list_paginated(self, status: str | None, page: int, size: int,
-                       company_id: int | None = None):
+                       company_id: int | None = None, search: str | None = None,
+                       date_from=None, date_to=None, min_amount=None, max_amount=None):
         query = select(m.InvoiceModel)
         if status:
             query = query.where(m.InvoiceModel.status == status)
         if company_id is not None:
             query = query.where(m.InvoiceModel.company_id == company_id)
+        if search and search.strip():
+            term = search.strip().lower()
+            query = query.outerjoin(
+                m.SupplierModel, m.SupplierModel.id == m.InvoiceModel.supplier_id).where(or_(
+                    func.lower(m.InvoiceModel.original_filename).contains(term, autoescape=True),
+                    func.lower(m.InvoiceModel.invoice_number).contains(term, autoescape=True),
+                    func.lower(m.SupplierModel.name).contains(term, autoescape=True)))
+        if date_from is not None:
+            query = query.where(m.InvoiceModel.invoice_date >= date_from)
+        if date_to is not None:
+            query = query.where(m.InvoiceModel.invoice_date <= date_to)
+        if min_amount is not None:
+            query = query.where(m.InvoiceModel.total_ttc >= min_amount)
+        if max_amount is not None:
+            query = query.where(m.InvoiceModel.total_ttc <= max_amount)
         total = self.db.scalar(select(func.count()).select_from(query.subquery()))
         rows = self.db.scalars(query.order_by(m.InvoiceModel.id.desc())
                                .offset((page - 1) * size).limit(size)).all()
         return [_invoice_to_domain(r) for r in rows], total or 0
+
+    def find_duplicate_id(self, invoice: dom.Invoice) -> int | None:
+        """Plus ancienne facture non rejetée de la même entreprise qui porte le
+        même TTC et soit le même n° de facture, soit le même fournisseur à la
+        même date. Seule la plus récente est signalée comme doublon."""
+        if invoice.total_ttc is None or invoice.id is None:
+            return None
+        same_document = []
+        if invoice.invoice_number:
+            same_document.append(m.InvoiceModel.invoice_number == invoice.invoice_number)
+        if invoice.supplier_id and invoice.invoice_date:
+            same_document.append(and_(m.InvoiceModel.supplier_id == invoice.supplier_id,
+                                      m.InvoiceModel.invoice_date == invoice.invoice_date))
+        if not same_document:
+            return None
+        return self.db.scalar(
+            select(m.InvoiceModel.id)
+            .where(m.InvoiceModel.company_id == invoice.company_id,
+                   m.InvoiceModel.id < invoice.id,
+                   m.InvoiceModel.status != "REJECTED",
+                   m.InvoiceModel.total_ttc == invoice.total_ttc,
+                   or_(*same_document))
+            .order_by(m.InvoiceModel.id).limit(1))
 
     def save_ocr_result(self, invoice_id, engine, raw_text, mean_confidence, blocks, duration_ms):
         self.db.add(m.OcrResultModel(invoice_id=invoice_id, engine=engine,

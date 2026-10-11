@@ -11,6 +11,17 @@ interface InvoiceRow {
   total_ttc?: string | null;
   currency: string;
   status: Parameters<typeof StatusBadge>[0]["status"];
+  duplicate_of?: number | null;
+}
+
+function DuplicateBadge({ of }: { of?: number | null }) {
+  if (!of) return null;
+  return (
+    <span className="rounded-full bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-800"
+          title={`Semble identique à la facture n° ${of}`}>
+      Doublon ?
+    </span>
+  );
 }
 
 /** Liste de factures : cartes tactiles sur téléphone (tout est lisible sans
@@ -34,6 +45,7 @@ export function InvoiceList({
                   <p className="truncate text-sm font-medium text-brand-700">{invoice.original_filename}</p>
                   <StatusBadge status={invoice.status} />
                 </div>
+                {invoice.duplicate_of ? <div className="mt-1"><DuplicateBadge of={invoice.duplicate_of} /></div> : null}
                 <p className="mt-0.5 truncate text-sm text-slate-600">{invoice.supplier_name ?? "—"}</p>
                 <div className="mt-1 flex items-center justify-between text-xs text-slate-500">
                   <span>
@@ -73,7 +85,11 @@ export function InvoiceList({
                 {detailed && <td className="px-5 py-2.5">{invoice.invoice_number ?? "—"}</td>}
                 {detailed && <td className="px-5 py-2.5">{invoice.invoice_date ?? "—"}</td>}
                 <td className="px-5 py-2.5">{amount(invoice)}</td>
-                <td className="px-5 py-2.5"><StatusBadge status={invoice.status} /></td>
+                <td className="px-5 py-2.5">
+                  <span className="inline-flex flex-wrap items-center gap-1.5">
+                    <StatusBadge status={invoice.status} /><DuplicateBadge of={invoice.duplicate_of} />
+                  </span>
+                </td>
               </tr>
             ))}
           </tbody>

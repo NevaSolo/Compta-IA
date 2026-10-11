@@ -33,6 +33,17 @@ export async function validateEntry(id: number): Promise<JournalEntry> {
   return data;
 }
 
+export interface BatchValidateResult {
+  validated: number;
+  failed: number;
+  results: { id: number; ok: boolean; error: string | null }[];
+}
+
+export async function validateEntriesBatch(ids: number[]): Promise<BatchValidateResult> {
+  const { data } = await api.post<BatchValidateResult>("/entries/validate-batch", { entry_ids: ids });
+  return data;
+}
+
 export type ExportFormat = "excel" | "csv" | "pdf";
 
 const EXPORT_FILENAMES: Record<ExportFormat, string> = {

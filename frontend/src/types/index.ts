@@ -100,6 +100,7 @@ export interface Invoice {
   currency: string;
   arithmetic_ok: boolean | null;
   error_message: string | null;
+  duplicate_of?: number | null;
 }
 
 export interface Paginated<T> {

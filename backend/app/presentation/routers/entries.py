@@ -19,6 +19,7 @@ from app.infrastructure.db.repositories import (
     MySQLEntryRepository, MySQLInvoiceRepository,
 )
 from app.presentation.schemas import (
+    BatchValidateItem, BatchValidateRequest, BatchValidateResult,
     CorrectEntryRequest, EntryLineOut, EntryOut, PaginatedEntries,
 )
 
@@ -112,6 +113,30 @@ def validate_entry(entry_id: int, user: User = Depends(get_current_user),
     except UseCaseError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     return _to_out(entry)
+
+
+@router.post("/validate-batch", response_model=BatchValidateResult,
+             summary="Valider plusieurs écritures (chacune contrôlée séparément)")
+def validate_batch(payload: BatchValidateRequest, user: User = Depends(get_current_user),
+                   db: Session = Depends(get_db)):
+    """Une écriture déséquilibrée ou déjà validée n'empêche pas les autres :
+    chaque écriture passe par le même cas d'usage que la validation unitaire
+    (équilibre re-vérifié, audit) et le résultat est rendu écriture par écriture."""
+    entries = MySQLEntryRepository(db)
+    use_case = ValidateEntryUseCase(entries, MySQLInvoiceRepository(db), MySQLAuditRepository(db))
+    results = []
+    for entry_id in dict.fromkeys(payload.entry_ids):  # dédoublonne en gardant l'ordre
+        existing = entries.get_by_id(entry_id)
+        if existing is None or (user.role != Role.ADMIN and existing.company_id != user.company_id):
+            results.append(BatchValidateItem(id=entry_id, ok=False, error="Écriture introuvable"))
+            continue
+        try:
+            use_case.execute(entry_id, user.id)
+            results.append(BatchValidateItem(id=entry_id, ok=True))
+        except UseCaseError as exc:
+            results.append(BatchValidateItem(id=entry_id, ok=False, error=str(exc)))
+    validated = sum(1 for r in results if r.ok)
+    return BatchValidateResult(validated=validated, failed=len(results) - validated, results=results)
 
 
 _EXPORT_HEADERS = ["N°", "Date", "Libellé", "Compte", "Libellé ligne",

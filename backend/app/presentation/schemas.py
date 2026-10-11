@@ -83,6 +83,9 @@ class InvoiceOut(BaseModel):
     currency: str = "MGA"
     arithmetic_ok: bool | None = None
     error_message: str | None = None
+    # Id d'une facture plus ancienne qui semble être la même (même TTC et même
+    # n° ou même fournisseur/date) : calculé à la lecture, rien n'est stocké.
+    duplicate_of: int | None = None
 
 
 class PaginatedInvoices(BaseModel):
@@ -136,6 +139,22 @@ class EntryOut(BaseModel):
     total_debit: Decimal
     total_credit: Decimal
     lines: list[EntryLineOut]
+
+
+class BatchValidateRequest(BaseModel):
+    entry_ids: list[int] = Field(min_length=1, max_length=200)
+
+
+class BatchValidateItem(BaseModel):
+    id: int
+    ok: bool
+    error: str | None = None
+
+
+class BatchValidateResult(BaseModel):
+    validated: int
+    failed: int
+    results: list[BatchValidateItem]
 
 
 class PaginatedEntries(BaseModel):

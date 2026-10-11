@@ -12,11 +12,22 @@ export async function uploadInvoice(file: File): Promise<Invoice> {
   return data;
 }
 
+export interface InvoiceFilters {
+  q?: string;
+  date_from?: string;
+  date_to?: string;
+  min_amount?: string;
+  max_amount?: string;
+}
+
 export async function listInvoices(
-  status?: string, page = 1, size = 20
+  status?: string, page = 1, size = 20, filters: InvoiceFilters = {}
 ): Promise<Paginated<Invoice>> {
+  // Les filtres vides sont retirés : l'API les traite comme absents, mais une
+  // chaîne vide en paramètre de date serait rejetée (422).
+  const active = Object.fromEntries(Object.entries(filters).filter(([, v]) => v));
   const { data } = await api.get<Paginated<Invoice>>("/invoices", {
-    params: { status, page, size },
+    params: { status, page, size, ...active },
   });
   return data;
 }

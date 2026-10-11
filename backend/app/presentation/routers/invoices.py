@@ -1,5 +1,8 @@
 """Router des factures : upload (202 + pipeline en tâche de fond),
 consultation, résultat OCR, entités extraites, image source, rejet."""
+from datetime import date
+from decimal import Decimal
+
 from fastapi import (APIRouter, BackgroundTasks, Depends, File, HTTPException,
                      Query, UploadFile)
 from fastapi.responses import Response
@@ -25,7 +28,7 @@ router = APIRouter(prefix="/api/invoices", tags=["Factures"])
 
 
 def _to_out(invoice, supplier_name: str | None = None,
-           company_name: str | None = None) -> InvoiceOut:
+           company_name: str | None = None, duplicate_of: int | None = None) -> InvoiceOut:
     return InvoiceOut(
         id=invoice.id, company_id=invoice.company_id, company_name=company_name,
         original_filename=invoice.original_filename,
@@ -37,7 +40,8 @@ def _to_out(invoice, supplier_name: str | None = None,
         invoice_number=invoice.invoice_number, invoice_date=invoice.invoice_date,
         total_ht=invoice.total_ht, total_vat=invoice.total_vat,
         total_ttc=invoice.total_ttc, currency=invoice.currency,
-        arithmetic_ok=invoice.arithmetic_ok, error_message=invoice.error_message)
+        arithmetic_ok=invoice.arithmetic_ok, error_message=invoice.error_message,
+        duplicate_of=duplicate_of)
 
 
 def _check_access(invoice, user: User) -> None:
@@ -91,9 +95,18 @@ async def upload_invoice(background_tasks: BackgroundTasks,
 def list_invoices(status: str | None = Query(default=None),
                   page: int = Query(default=1, ge=1),
                   size: int = Query(default=20, ge=1, le=100),
+                  q: str | None = Query(default=None, max_length=100,
+                                        description="Fichier, fournisseur ou n° de facture"),
+                  date_from: date | None = Query(default=None),
+                  date_to: date | None = Query(default=None),
+                  min_amount: Decimal | None = Query(default=None, ge=0),
+                  max_amount: Decimal | None = Query(default=None, ge=0),
                   user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     scope = None if user.role == Role.ADMIN else user.company_id
-    items, total = MySQLInvoiceRepository(db).list_paginated(status, page, size, scope)
+    repo = MySQLInvoiceRepository(db)
+    items, total = repo.list_paginated(status, page, size, scope, search=q,
+                                       date_from=date_from, date_to=date_to,
+                                       min_amount=min_amount, max_amount=max_amount)
     suppliers = MySQLSupplierRepository(db)
     companies = MySQLCompanyRepository(db)
     out = []
@@ -106,7 +119,7 @@ def list_invoices(status: str | None = Query(default=None),
         if user.role == Role.ADMIN and invoice.company_id:
             company = companies.get_by_id(invoice.company_id)
             company_name = company.name if company else None
-        out.append(_to_out(invoice, name, company_name))
+        out.append(_to_out(invoice, name, company_name, repo.find_duplicate_id(invoice)))
     return PaginatedInvoices(items=out, total=total, page=page, size=size)
 
 
@@ -121,7 +134,7 @@ def get_invoice(invoice_id: int, user: User = Depends(get_current_user),
     if invoice.supplier_id:
         supplier = MySQLSupplierRepository(db).get_by_id(invoice.supplier_id)
         name = supplier.name if supplier else None
-    return _to_out(invoice, name)
+    return _to_out(invoice, name, duplicate_of=MySQLInvoiceRepository(db).find_duplicate_id(invoice))
 
 
 @router.get("/{invoice_id}/file", summary="Fichier source de la facture")

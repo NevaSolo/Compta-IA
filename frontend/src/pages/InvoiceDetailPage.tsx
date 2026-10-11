@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   getEntities, getEntriesOfInvoice, getInvoice, getOcrResult,
@@ -148,6 +148,16 @@ export function InvoiceDetailPage() {
             className="btn bg-red-600 text-white hover:bg-red-700"
           >Confirmer</button>
         </div>
+      )}
+
+      {invoice.duplicate_of && (
+        <p className="rounded-md bg-orange-50 px-4 py-3 text-sm text-orange-800">
+          Doublon possible : une facture plus ancienne a le même montant TTC et le même
+          n° ou le même fournisseur à la même date.{" "}
+          <Link to={`/factures/${invoice.duplicate_of}`} className="font-medium underline">
+            Voir la facture n° {invoice.duplicate_of}
+          </Link>
+        </p>
       )}
 
       {invoice.status === "ERROR" && (
