@@ -5,7 +5,7 @@ from datetime import datetime
 from decimal import Decimal
 
 from rapidfuzz import fuzz
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.domain import entities as dom
@@ -17,7 +17,8 @@ from app.infrastructure.db import models as m
 
 def _company_to_domain(row: m.CompanyModel) -> dom.Company:
     return dom.Company(id=row.id, name=row.name, nif=row.nif, stat=row.stat,
-                       address=row.address, is_active=row.is_active, logo_path=row.logo_path)
+                       address=row.address, is_active=row.is_active, logo_path=row.logo_path,
+                       base_currency=row.base_currency or "MGA")
 
 
 def _user_to_domain(row: m.UserModel) -> dom.User:
@@ -41,7 +42,9 @@ def _invoice_to_domain(row: m.InvoiceModel) -> dom.Invoice:
         total_ht=Decimal(str(row.total_ht)) if row.total_ht is not None else None,
         total_vat=Decimal(str(row.total_vat)) if row.total_vat is not None else None,
         total_ttc=Decimal(str(row.total_ttc)) if row.total_ttc is not None else None,
-        currency=row.currency, arithmetic_ok=row.arithmetic_ok,
+        currency=row.currency,
+        exchange_rate=Decimal(str(row.exchange_rate)) if row.exchange_rate is not None else None,
+        arithmetic_ok=row.arithmetic_ok,
         error_message=row.error_message)
 
 
@@ -53,6 +56,11 @@ def _entry_to_domain(row: m.JournalEntryModel) -> dom.JournalEntry:
         confidence_score=float(row.confidence_score) if row.confidence_score is not None else None,
         rule_code=row.rule.code if row.rule else None,
         validated_by=row.validated_by, validated_at=row.validated_at,
+        currency=row.currency or "MGA", original_currency=row.original_currency,
+        original_amount=(Decimal(str(row.original_amount))
+                         if row.original_amount is not None else None),
+        exchange_rate=(Decimal(str(row.exchange_rate))
+                       if row.exchange_rate is not None else None),
         lines=[dom.EntryLine(
             id=line.id, account_id=line.account_id,
             account_code=line.account.code if line.account else "",
@@ -94,6 +102,15 @@ class MySQLCompanyRepository(ports.CompanyRepository):
         self.db.refresh(row)
         return _company_to_domain(row)
 
+    def set_base_currency(self, company_id: int, currency: str) -> dom.Company | None:
+        row = self.db.get(m.CompanyModel, company_id)
+        if row is None:
+            return None
+        row.base_currency = currency
+        self.db.commit()
+        self.db.refresh(row)
+        return _company_to_domain(row)
+
     def update_branding(self, company_id: int, **fields) -> dom.Company | None:
         unknown = set(fields) - {"name", "logo_path"}
         if unknown:
@@ -106,6 +123,57 @@ class MySQLCompanyRepository(ports.CompanyRepository):
         self.db.commit()
         self.db.refresh(row)
         return _company_to_domain(row)
+
+
+class MySQLExchangeRateRepository(ports.ExchangeRateRepository):
+    def __init__(self, db: Session):
+        self.db = db
+
+    @staticmethod
+    def _to_domain(row: m.ExchangeRateModel) -> dom.ExchangeRate:
+        return dom.ExchangeRate(id=row.id, company_id=row.company_id, currency=row.currency,
+                                rate=Decimal(str(row.rate)), effective_date=row.effective_date)
+
+    def list_for_company(self, company_id: int) -> list[dom.ExchangeRate]:
+        rows = self.db.scalars(
+            select(m.ExchangeRateModel).where(m.ExchangeRateModel.company_id == company_id)
+            .order_by(m.ExchangeRateModel.currency, m.ExchangeRateModel.effective_date.desc())).all()
+        return [self._to_domain(r) for r in rows]
+
+    def upsert(self, company_id: int, currency: str, rate: Decimal,
+               effective_date) -> dom.ExchangeRate:
+        """Un seul taux par (devise, date) : en saisir un second le remplace."""
+        row = self.db.scalar(select(m.ExchangeRateModel).where(
+            m.ExchangeRateModel.company_id == company_id,
+            m.ExchangeRateModel.currency == currency,
+            m.ExchangeRateModel.effective_date == effective_date))
+        if row is None:
+            row = m.ExchangeRateModel(company_id=company_id, currency=currency,
+                                      effective_date=effective_date, rate=rate)
+            self.db.add(row)
+        else:
+            row.rate = rate
+        self.db.commit()
+        self.db.refresh(row)
+        return self._to_domain(row)
+
+    def delete(self, company_id: int, rate_id: int) -> bool:
+        row = self.db.get(m.ExchangeRateModel, rate_id)
+        if row is None or row.company_id != company_id:
+            return False
+        self.db.delete(row)
+        self.db.commit()
+        return True
+
+    def find_applicable(self, company_id: int, currency: str, on_date) -> dom.ExchangeRate | None:
+        """Le taux le plus récent dont la date d'effet est antérieure ou égale à la date demandée."""
+        row = self.db.scalar(
+            select(m.ExchangeRateModel).where(
+                m.ExchangeRateModel.company_id == company_id,
+                m.ExchangeRateModel.currency == currency,
+                m.ExchangeRateModel.effective_date <= on_date)
+            .order_by(m.ExchangeRateModel.effective_date.desc()).limit(1))
+        return self._to_domain(row) if row else None
 
 
 class MySQLUserRepository(ports.UserRepository):
@@ -260,6 +328,7 @@ class MySQLInvoiceRepository(ports.InvoiceRepository):
         row.total_vat = invoice.total_vat
         row.total_ttc = invoice.total_ttc
         row.currency = invoice.currency
+        row.exchange_rate = invoice.exchange_rate
         row.arithmetic_ok = invoice.arithmetic_ok
         row.error_message = invoice.error_message
         self.db.commit()
@@ -320,6 +389,14 @@ class MySQLInvoiceRepository(ports.InvoiceRepository):
                    m.InvoiceModel.total_ttc == invoice.total_ttc,
                    or_(*same_document))
             .order_by(m.InvoiceModel.id).limit(1))
+
+    def reset_pipeline_results(self, invoice_id: int) -> None:
+        """Efface OCR, entités et classification d'un passage précédent : le
+        pipeline les recrée, et leurs clés d'unicité (une ligne par facture)
+        interdisent sinon de relancer le traitement."""
+        for model in (m.OcrResultModel, m.ExtractedEntityModel, m.ClassificationModel):
+            self.db.execute(delete(model).where(model.invoice_id == invoice_id))
+        self.db.commit()
 
     def save_ocr_result(self, invoice_id, engine, raw_text, mean_confidence, blocks, duration_ms):
         self.db.add(m.OcrResultModel(invoice_id=invoice_id, engine=engine,
@@ -387,7 +464,9 @@ class MySQLEntryRepository(ports.EntryRepository):
             invoice_id=entry.invoice_id, company_id=entry.company_id,
             rule_id=rule_id, entry_date=entry.entry_date,
             label=entry.label, status=entry.status.value,
-            confidence_score=entry.confidence_score)
+            confidence_score=entry.confidence_score, currency=entry.currency,
+            original_currency=entry.original_currency,
+            original_amount=entry.original_amount, exchange_rate=entry.exchange_rate)
         for line in entry.lines:
             row.lines.append(m.EntryLineModel(
                 account_id=line.account_id, label=line.label, debit=line.debit,
@@ -437,6 +516,24 @@ class MySQLEntryRepository(ports.EntryRepository):
         rows = self.db.scalars(query.order_by(m.JournalEntryModel.id.desc())
                                .offset((page - 1) * size).limit(size)).unique().all()
         return [_entry_to_domain(r) for r in rows], total or 0
+
+    def delete_unvalidated_by_invoice(self, invoice_id: int) -> int:
+        """Supprime les écritures proposées/corrigées d'une facture avant d'en
+        générer une nouvelle : sans cela, chaque relance ajouterait un doublon.
+        Les écritures validées ne sont jamais touchées."""
+        rows = self.db.scalars(select(m.JournalEntryModel).where(
+            m.JournalEntryModel.invoice_id == invoice_id,
+            m.JournalEntryModel.status != "VALIDATED")).unique().all()
+        for row in rows:
+            self.db.execute(delete(m.CorrectionModel).where(m.CorrectionModel.entry_id == row.id))
+            self.db.delete(row)
+        self.db.commit()
+        return len(rows)
+
+    def count_validated(self, company_id: int) -> int:
+        return self.db.scalar(select(func.count()).select_from(m.JournalEntryModel).where(
+            m.JournalEntryModel.company_id == company_id,
+            m.JournalEntryModel.status == "VALIDATED")) or 0
 
     def save_correction(self, entry_id, line_id, user_id, field_name, original, corrected):
         self.db.add(m.CorrectionModel(

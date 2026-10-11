@@ -11,17 +11,18 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.application.pipeline import ProcessInvoicePipelineUseCase
 from app.application.use_cases import RejectInvoiceUseCase, UploadInvoiceUseCase, UseCaseError
 from app.core.dependencies import get_current_user
-from app.domain.entities import Role, User
+from app.domain.entities import InvoiceStatus, Role, User
 from app.infrastructure.db.database import get_db
 from app.infrastructure.db.repositories import (
     MySQLAccountRepository, MySQLAuditRepository, MySQLCompanyRepository,
-    MySQLEntryRepository, MySQLInvoiceRepository, MySQLRuleRepository,
-    MySQLSupplierRepository,
+    MySQLEntryRepository, MySQLExchangeRateRepository, MySQLInvoiceRepository,
+    MySQLRuleRepository, MySQLSupplierRepository,
 )
 from app.infrastructure.nlp.extractor import HybridExtractor
 from app.infrastructure.storage.local_storage import LocalFileStorage
 from app.presentation.schemas import (
-    ExtractedEntityOut, InvoiceOut, OcrResultOut, PaginatedInvoices, RejectRequest,
+    ExtractedEntityOut, InvoiceOut, InvoiceRateUpdate, OcrResultOut, PaginatedInvoices,
+    RejectRequest,
 )
 
 router = APIRouter(prefix="/api/invoices", tags=["Factures"])
@@ -40,6 +41,7 @@ def _to_out(invoice, supplier_name: str | None = None,
         invoice_number=invoice.invoice_number, invoice_date=invoice.invoice_date,
         total_ht=invoice.total_ht, total_vat=invoice.total_vat,
         total_ttc=invoice.total_ttc, currency=invoice.currency,
+        exchange_rate=invoice.exchange_rate,
         arithmetic_ok=invoice.arithmetic_ok, error_message=invoice.error_message,
         duplicate_of=duplicate_of)
 
@@ -63,7 +65,8 @@ def _run_pipeline(invoice_id: int, bind) -> None:
         pipeline = ProcessInvoicePipelineUseCase(
             invoices=MySQLInvoiceRepository(db), entries=MySQLEntryRepository(db),
             accounts=MySQLAccountRepository(db), suppliers=MySQLSupplierRepository(db),
-            rules=MySQLRuleRepository(db), extractor=HybridExtractor())
+            rules=MySQLRuleRepository(db), extractor=HybridExtractor(),
+            companies=MySQLCompanyRepository(db), rates=MySQLExchangeRateRepository(db))
         pipeline.execute(invoice_id)
     finally:
         db.close()
@@ -185,6 +188,9 @@ def reprocess(invoice_id: int, background_tasks: BackgroundTasks,
     if invoice is None:
         raise HTTPException(status_code=404, detail="Facture introuvable")
     _check_access(invoice, user)
+    if invoice.status.value == "VALIDATED":
+        raise HTTPException(status_code=409,
+                            detail="Facture validée : elle ne peut plus être retraitée.")
     if invoice.status.value in _PIPELINE_RUNNING_STATUSES:
         # Bug réel corrigé : sans ce garde-fou, un second clic (ou un appel
         # API concurrent) démarre un second _run_pipeline sur LA MÊME
@@ -194,8 +200,44 @@ def reprocess(invoice_id: int, background_tasks: BackgroundTasks,
         # une étape qui oscille au lieu de progresser.
         raise HTTPException(status_code=409,
                             detail="Le pipeline est déjà en cours de traitement pour cette facture.")
+    # Statut « en cours » posé tout de suite, avant la tâche de fond : sinon un
+    # sondage immédiat voit encore l'ancien statut ERROR (final) et cesse de
+    # suivre le traitement, qui paraît alors bloqué alors qu'il vient de repartir.
+    invoice.status = InvoiceStatus.UPLOADED
+    invoice.current_step = None
+    invoice.error_message = None
+    MySQLInvoiceRepository(db).update(invoice)
     background_tasks.add_task(_run_pipeline, invoice_id, db.get_bind())
     return {"detail": "Pipeline relancé"}
+
+
+@router.put("/{invoice_id}/exchange-rate", response_model=InvoiceOut,
+            summary="Fixer le taux de change de cette facture (devise étrangère)")
+def set_exchange_rate(invoice_id: int, payload: InvoiceRateUpdate,
+                      user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    repo = MySQLInvoiceRepository(db)
+    invoice = repo.get_by_id(invoice_id)
+    if invoice is None:
+        raise HTTPException(status_code=404, detail="Facture introuvable")
+    _check_access(invoice, user)
+    company = MySQLCompanyRepository(db).get_by_id(invoice.company_id)
+    base = company.base_currency if company else "MGA"
+    if invoice.currency == base:
+        raise HTTPException(status_code=422,
+                            detail=f"Cette facture est déjà en {base} : aucun taux à appliquer.")
+    if invoice.status.value in _PIPELINE_RUNNING_STATUSES:
+        raise HTTPException(status_code=409, detail="Le pipeline est en cours de traitement.")
+    if invoice.status.value == "VALIDATED":
+        raise HTTPException(status_code=409,
+                            detail="Écriture déjà validée : le taux ne peut plus être modifié.")
+    invoice.exchange_rate = payload.rate
+    repo.update(invoice)
+    if payload.save_for_company and user.role in (Role.ADMIN, Role.ENTREPRISE_ADMIN):
+        MySQLExchangeRateRepository(db).upsert(
+            invoice.company_id, invoice.currency, payload.rate, invoice.invoice_date or date.today())
+    MySQLAuditRepository(db).log(user.id, "INVOICE_RATE_SET", "invoice", invoice_id,
+                                 new_value={"currency": invoice.currency, "rate": str(payload.rate)})
+    return _to_out(invoice)
 
 
 @router.post("/{invoice_id}/reject", response_model=InvoiceOut,

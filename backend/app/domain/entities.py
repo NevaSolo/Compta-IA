@@ -84,6 +84,7 @@ class Company:
     address: str | None = None
     is_active: bool = True
     logo_path: str | None = None  # fichier dans le stockage « branding »
+    base_currency: str = "MGA"    # devise de tenue de comptabilité
 
 
 @dataclass
@@ -146,6 +147,7 @@ class Invoice:
     total_vat: Decimal | None = None
     total_ttc: Decimal | None = None
     currency: str = "MGA"
+    exchange_rate: Decimal | None = None  # 1 unité de `currency` = taux × devise de l'entreprise
     arithmetic_ok: bool | None = None
     error_message: str | None = None
 
@@ -200,6 +202,12 @@ class JournalEntry:
     id: int | None = None
     validated_by: int | None = None
     validated_at: datetime | None = None
+    # Les montants des lignes sont toujours dans `currency` (devise de l'entreprise).
+    # Si la facture était en devise étrangère, l'origine est conservée ici.
+    currency: str = "MGA"
+    original_currency: str | None = None
+    original_amount: Decimal | None = None
+    exchange_rate: Decimal | None = None
 
     def total_debit(self) -> Decimal:
         return sum((line.debit for line in self.lines), Decimal("0"))
@@ -209,3 +217,14 @@ class JournalEntry:
 
     def is_balanced(self) -> bool:
         return self.total_debit() == self.total_credit()
+
+
+@dataclass
+class ExchangeRate:
+    """1 unité de `currency` = `rate` unités de la devise de l'entreprise,
+    applicable à partir de `effective_date` (jusqu'au taux suivant)."""
+    id: int | None
+    company_id: int
+    currency: str
+    rate: Decimal
+    effective_date: date

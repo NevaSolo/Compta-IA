@@ -1,6 +1,7 @@
 import { useRef, useState, type FormEvent } from "react";
 import { Building2, Camera, Check, Monitor, Moon, Sun, Trash2, type LucideIcon } from "lucide-react";
 import { Avatar } from "@/components/Avatar";
+import { CurrencySettings } from "@/components/CurrencySettings";
 import { PageHeader } from "@/components/PageHeader";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/context/ToastContext";
@@ -228,6 +229,13 @@ export function ProfilePage() {
               Enregistrer le nom
             </button>
           </form>
+        </Section>
+      )}
+
+      {canEditCompany && (
+        <Section title="Devise et taux de change"
+                 hint="Votre comptabilité est tenue dans une seule devise ; les factures en devise étrangère y sont converties au taux que vous définissez.">
+          <CurrencySettings companyId={companyId!} />
         </Section>
       )}
 

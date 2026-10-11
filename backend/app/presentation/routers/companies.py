@@ -8,9 +8,13 @@ from app.core import branding
 from app.core.dependencies import get_current_user, require_admin, require_company_admin
 from app.domain.entities import Company, Role, User
 from app.infrastructure.db.database import get_db
-from app.infrastructure.db.repositories import MySQLAuditRepository, MySQLCompanyRepository
+from app.infrastructure.db.repositories import (
+    MySQLAuditRepository, MySQLCompanyRepository, MySQLEntryRepository,
+    MySQLExchangeRateRepository,
+)
 from app.presentation.schemas import (
-    CompanyActiveUpdate, CompanyBrandingUpdate, CompanyCreate, CompanyOut,
+    CompanyActiveUpdate, CompanyBrandingUpdate, CompanyCreate, CompanyOut, CurrencyUpdate,
+    ExchangeRateIn, ExchangeRateOut,
 )
 
 router = APIRouter(prefix="/api/companies", tags=["Entreprises"])
@@ -20,7 +24,8 @@ def _to_out(company: Company) -> CompanyOut:
     return CompanyOut(id=company.id, name=company.name, nif=company.nif,
                       stat=company.stat, address=company.address,
                       is_active=company.is_active,
-                      logo_version=branding.image_version(company.logo_path))
+                      logo_version=branding.image_version(company.logo_path),
+                      base_currency=company.base_currency)
 
 
 @router.post("", response_model=CompanyOut, status_code=201,
@@ -117,3 +122,65 @@ def update_company_name(company_id: int, payload: CompanyBrandingUpdate,
                                  old_value={"name": company.name},
                                  new_value={"name": updated.name})
     return _to_out(updated)
+
+
+# ------------------------------------------------ Devise et taux de change
+@router.patch("/{company_id}/currency", response_model=CompanyOut,
+              summary="Définir la devise de tenue de comptabilité (Admin d'entreprise ou Admin)")
+def set_base_currency(company_id: int, payload: CurrencyUpdate,
+                      user: User = Depends(require_company_admin), db: Session = Depends(get_db)):
+    company = _company_for_editing(company_id, user, db)
+    if payload.base_currency == company.base_currency:
+        return _to_out(company)
+    if MySQLEntryRepository(db).count_validated(company_id) > 0:
+        # Mélanger deux devises dans un même journal validé fausserait les totaux.
+        raise HTTPException(
+            status_code=409,
+            detail="La devise ne peut plus être changée : des écritures sont déjà validées "
+                   f"en {company.base_currency}.")
+    updated = MySQLCompanyRepository(db).set_base_currency(company_id, payload.base_currency)
+    MySQLAuditRepository(db).log(user.id, "COMPANY_CURRENCY_CHANGED", "company", company_id,
+                                 old_value={"base_currency": company.base_currency},
+                                 new_value={"base_currency": payload.base_currency})
+    return _to_out(updated)
+
+
+def _rate_out(rate) -> ExchangeRateOut:
+    return ExchangeRateOut(id=rate.id, currency=rate.currency, rate=rate.rate,
+                           effective_date=rate.effective_date)
+
+
+@router.get("/{company_id}/rates", response_model=list[ExchangeRateOut],
+            summary="Taux de change de l'entreprise (membres)")
+def list_rates(company_id: int, user: User = Depends(get_current_user),
+               db: Session = Depends(get_db)):
+    _company_for_members(company_id, user, db)
+    return [_rate_out(r) for r in MySQLExchangeRateRepository(db).list_for_company(company_id)]
+
+
+@router.post("/{company_id}/rates", response_model=ExchangeRateOut, status_code=201,
+             summary="Ajouter ou remplacer un taux (Admin d'entreprise ou Admin)")
+def save_rate(company_id: int, payload: ExchangeRateIn,
+              user: User = Depends(require_company_admin), db: Session = Depends(get_db)):
+    company = _company_for_editing(company_id, user, db)
+    if payload.currency == company.base_currency:
+        raise HTTPException(status_code=422,
+                            detail="Pas de taux pour la devise de l'entreprise elle-même")
+    rate = MySQLExchangeRateRepository(db).upsert(
+        company_id, payload.currency, payload.rate, payload.effective_date)
+    MySQLAuditRepository(db).log(user.id, "EXCHANGE_RATE_SAVED", "company", company_id,
+                                 new_value={"currency": payload.currency, "rate": str(payload.rate),
+                                            "effective_date": payload.effective_date.isoformat()})
+    return _rate_out(rate)
+
+
+@router.delete("/{company_id}/rates/{rate_id}", status_code=204,
+               summary="Supprimer un taux (Admin d'entreprise ou Admin)")
+def delete_rate(company_id: int, rate_id: int, user: User = Depends(require_company_admin),
+                db: Session = Depends(get_db)):
+    _company_for_editing(company_id, user, db)
+    if not MySQLExchangeRateRepository(db).delete(company_id, rate_id):
+        raise HTTPException(status_code=404, detail="Taux introuvable")
+    MySQLAuditRepository(db).log(user.id, "EXCHANGE_RATE_DELETED", "company", company_id,
+                                 old_value={"rate_id": rate_id})
+    return Response(status_code=204)

@@ -17,6 +17,7 @@ export interface User {
   accent?: Accent;
   avatar_version?: number | null;
   company_logo_version?: number | null;
+  company_currency?: string;
 }
 
 export interface Company {
@@ -27,6 +28,7 @@ export interface Company {
   address: string | null;
   is_active: boolean;
   logo_version?: number | null;
+  base_currency?: string;
 }
 
 export interface AuditLogEntry {
@@ -108,6 +110,7 @@ export interface Invoice {
   arithmetic_ok: boolean | null;
   error_message: string | null;
   duplicate_of?: number | null;
+  exchange_rate?: string | null;
 }
 
 export interface Paginated<T> {
@@ -163,7 +166,20 @@ export interface JournalEntry {
   validated_at: string | null;
   total_debit: string;
   total_credit: string;
+  // Montants des lignes dans `currency` (devise de l'entreprise) ; l'origine
+  // n'est renseignée que pour une facture en devise étrangère.
+  currency?: string;
+  original_currency?: string | null;
+  original_amount?: string | null;
+  exchange_rate?: string | null;
   lines: EntryLine[];
+}
+
+export interface ExchangeRate {
+  id: number;
+  currency: string;
+  rate: string;
+  effective_date: string;
 }
 
 export interface Account {

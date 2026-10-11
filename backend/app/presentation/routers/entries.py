@@ -31,7 +31,9 @@ def _to_out(entry: JournalEntry) -> EntryOut:
         id=entry.id, invoice_id=entry.invoice_id, entry_date=entry.entry_date,
         label=entry.label, status=entry.status.value,
         confidence_score=entry.confidence_score, rule_code=entry.rule_code,
-        validated_at=entry.validated_at,
+        validated_at=entry.validated_at, currency=entry.currency,
+        original_currency=entry.original_currency, original_amount=entry.original_amount,
+        exchange_rate=entry.exchange_rate,
         total_debit=entry.total_debit(), total_credit=entry.total_credit(),
         lines=[EntryLineOut(id=l.id, account_code=l.account_code, label=l.label,
                             debit=l.debit, credit=l.credit,
@@ -140,7 +142,8 @@ def validate_batch(payload: BatchValidateRequest, user: User = Depends(get_curre
 
 
 _EXPORT_HEADERS = ["N°", "Date", "Libellé", "Compte", "Libellé ligne",
-                   "Débit", "Crédit", "Statut"]
+                   "Débit", "Crédit", "Statut", "Devise", "Montant d'origine",
+                   "Devise d'origine", "Taux"]
 
 
 def _export_rows(db: Session, company_id: int | None) -> list[list]:
@@ -154,7 +157,10 @@ def _export_rows(db: Session, company_id: int | None) -> list[list]:
         for line in entry.lines:
             rows.append([entry.id, entry.entry_date.isoformat(), entry.label,
                         line.account_code, line.label, float(line.debit),
-                        float(line.credit), entry.status.value])
+                        float(line.credit), entry.status.value, entry.currency,
+                        float(entry.original_amount) if entry.original_amount is not None else "",
+                        entry.original_currency or "",
+                        float(entry.exchange_rate) if entry.exchange_rate is not None else ""])
     return rows
 
 
@@ -193,6 +199,13 @@ def export_csv(user: User = Depends(get_current_user), db: Session = Depends(get
         headers={"Content-Disposition": "attachment; filename=journal_achats.csv"})
 
 
+def _company_currency(db: Session, company_id: int | None) -> str:
+    if company_id is None:
+        return "MGA"
+    company = MySQLCompanyRepository(db).get_by_id(company_id)
+    return company.base_currency if company else "MGA"
+
+
 def _company_label(db: Session, company_id: int | None) -> str:
     """Nom de l'entreprise affiché en tête du journal. Sans périmètre
     (administrateur global), le journal couvre toutes les entreprises."""
@@ -208,6 +221,16 @@ def _format_amount(value: float) -> str:
     séparateur de milliers."""
     text = f"{value:,.0f}" if value == round(value) else f"{value:,.2f}"
     return text.replace(",", " ")
+
+
+def _origin_text(entry: JournalEntry) -> str:
+    """« 1 000 EUR × 4 950 » : montant d'origine et taux, pour qu'un contrôleur
+    retrouve le calcul d'une écriture convertie."""
+    if entry.original_currency is None or entry.original_amount is None:
+        return ""
+    rate = f"{entry.exchange_rate:f}".rstrip("0").rstrip(".") if entry.exchange_rate else "?"
+    return (f"{_format_amount(float(entry.original_amount))} {entry.original_currency}"
+            f" × {_format_amount(float(rate)) if rate != '?' else rate}")
 
 
 def _pdf_journal_rows(db: Session, company_id: int | None) -> list[list]:
@@ -226,9 +249,11 @@ def _pdf_journal_rows(db: Session, company_id: int | None) -> list[list]:
                 invoice.invoice_number if invoice and invoice.invoice_number
                 else f"FAC-{entry.invoice_id:03d}")
         piece = invoice_cache[entry.invoice_id]
-        for line in entry.lines:
+        origin = _origin_text(entry)
+        for index, line in enumerate(entry.lines):
             rows.append([entry.entry_date, piece, line.account_code, line.label,
-                        float(line.debit), float(line.credit)])
+                        float(line.debit), float(line.credit),
+                        origin if index == 0 else "", entry.currency])
     return rows
 
 
@@ -248,6 +273,13 @@ def export_pdf(user: User = Depends(get_current_user), db: Session = Depends(get
     scope = None if user.role == Role.ADMIN else user.company_id
     rows = _pdf_journal_rows(db, scope)
     company_label = _company_label(db, scope)
+    currencies = sorted({r[7] for r in rows})
+    # Devise du journal : celle des écritures (une seule par entreprise) ; un
+    # administrateur plateforme qui exporte plusieurs entreprises peut en voir plusieurs.
+    if currencies:
+        journal_currency = currencies[0] if len(currencies) == 1 else "/".join(currencies)
+    else:
+        journal_currency = _company_currency(db, scope)
 
     HEADER_BG = colors.HexColor("#D9D9D9")
     ROW_ALT_BG = colors.HexColor("#F2F2F2")
@@ -288,7 +320,7 @@ def export_pdf(user: User = Depends(get_current_user), db: Session = Depends(get
         [["Entreprise", Paragraph(xml_escape(company_label),
                                       ParagraphStyle("CompanyCell", parent=cell_style,
                                                      fontSize=9, leading=11)), "Période", periode],
-         ["Journal", "ACH", "Devise", settings.default_currency]],
+         ["Journal", "ACH", "Devise", journal_currency]],
         colWidths=[2.6 * cm, 6.4 * cm, 2.6 * cm, 4.9 * cm])
     info_table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (0, -1), HEADER_BG),
@@ -306,7 +338,7 @@ def export_pdf(user: User = Depends(get_current_user), db: Session = Depends(get
     elements.append(Spacer(1, 0.6 * cm))
 
     headers = ["Date", "N° pièce", "Compte", "Libellé",
-               f"Débit ({settings.default_currency})", f"Crédit ({settings.default_currency})"]
+               f"Débit ({journal_currency})", f"Crédit ({journal_currency})"]
     total_debit = sum(r[4] for r in rows)
     total_credit = sum(r[5] for r in rows)
     # Bug réel corrigé : Paragraph() interprète son texte comme du XML léger
@@ -315,7 +347,9 @@ def export_pdf(user: User = Depends(get_current_user), db: Session = Depends(get
     # casse le parseur ReportLab avec "unclosed tags" et fait échouer tout
     # l'export PDF (500). On échappe donc systématiquement le texte libre.
     table_data = [headers] + [
-        [r[0].strftime("%d/%m/%Y"), r[1], r[2], Paragraph(xml_escape(r[3]), cell_style),
+        [r[0].strftime("%d/%m/%Y"), r[1], r[2], Paragraph(
+            xml_escape(r[3]) + (f'<br/><font size="7" color="#555555">{xml_escape(r[6])}</font>'
+                                 if r[6] else ""), cell_style),
          _format_amount(r[4]) if r[4] else "", _format_amount(r[5]) if r[5] else ""]
         for r in rows
     ] + [["TOTAL JOURNAL", "", "", "", _format_amount(total_debit), _format_amount(total_credit)]]

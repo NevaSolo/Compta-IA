@@ -6,9 +6,12 @@ ni EasyOCR, ni scikit-learn — uniquement ces contrats.
 """
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from datetime import date
+from decimal import Decimal
 
 from app.domain.entities import (
-    Account, Company, ExtractedEntity, Invoice, JournalEntry, OperationType, Supplier, User,
+    Account, Company, ExchangeRate, ExtractedEntity, Invoice, JournalEntry, OperationType,
+    Supplier, User,
 )
 
 
@@ -100,6 +103,20 @@ class CompanyRepository(ABC):
     def set_active(self, company_id: int, is_active: bool) -> Company | None: ...
     @abstractmethod
     def update_branding(self, company_id: int, **fields) -> Company | None: ...
+    @abstractmethod
+    def set_base_currency(self, company_id: int, currency: str) -> Company | None: ...
+
+
+class ExchangeRateRepository(ABC):
+    @abstractmethod
+    def list_for_company(self, company_id: int) -> list[ExchangeRate]: ...
+    @abstractmethod
+    def upsert(self, company_id: int, currency: str, rate: Decimal,
+               effective_date: date) -> ExchangeRate: ...
+    @abstractmethod
+    def delete(self, company_id: int, rate_id: int) -> bool: ...
+    @abstractmethod
+    def find_applicable(self, company_id: int, currency: str, on_date: date) -> ExchangeRate | None: ...
 
 
 class UserRepository(ABC):
@@ -149,6 +166,8 @@ class InvoiceRepository(ABC):
     @abstractmethod
     def find_duplicate_id(self, invoice: Invoice) -> int | None: ...
     @abstractmethod
+    def reset_pipeline_results(self, invoice_id: int) -> None: ...
+    @abstractmethod
     def save_ocr_result(self, invoice_id: int, engine: str, raw_text: str,
                         mean_confidence: float, blocks: list, duration_ms: int) -> None: ...
     @abstractmethod
@@ -175,6 +194,8 @@ class EntryRepository(ABC):
     @abstractmethod
     def list_paginated(self, status: str | None, page: int, size: int,
                        company_id: int | None = None) -> tuple[list[JournalEntry], int]: ...
+    @abstractmethod
+    def delete_unvalidated_by_invoice(self, invoice_id: int) -> int: ...
     @abstractmethod
     def save_correction(self, entry_id: int, line_id: int | None, user_id: int,
                         field_name: str, original: str, corrected: str) -> None: ...

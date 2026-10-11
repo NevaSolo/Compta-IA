@@ -10,6 +10,8 @@ import { listAccounts } from "@/services/accounts";
 import { FileSearch } from "lucide-react";
 import { StatusBadge } from "@/components/StatusBadge";
 import { ConfidenceBadge } from "@/components/ConfidenceBadge";
+import { ExchangeRateBox } from "@/components/ExchangeRateBox";
+import { useAuth } from "@/context/AuthContext";
 import { EmptyState } from "@/components/EmptyState";
 import { Skeleton } from "@/components/Skeleton";
 import { apiErrorMessage } from "@/services/api";
@@ -28,6 +30,7 @@ export function InvoiceDetailPage() {
   const queryClient = useQueryClient();
   const { notify } = useToast();
   const { track } = usePipelineProgress();
+  const { user } = useAuth();
   const [rejectReason, setRejectReason] = useState("");
   const [showReject, setShowReject] = useState(false);
 
@@ -102,6 +105,8 @@ export function InvoiceDetailPage() {
     return <div className="card"><EmptyState icon={FileSearch} title="Facture introuvable" /></div>;
   }
   const invoice = invoiceQuery.data;
+  const foreignCurrency = user !== null && user.company_id !== null
+    && invoice.currency !== (user.company_currency ?? "MGA");
 
   return (
     <div className="space-y-6">
@@ -160,7 +165,11 @@ export function InvoiceDetailPage() {
         </p>
       )}
 
-      {invoice.status === "ERROR" && (
+      {foreignCurrency && (
+        <ExchangeRateBox invoice={invoice} baseCurrency={user.company_currency ?? "MGA"} />
+      )}
+
+      {invoice.status === "ERROR" && !(foreignCurrency && !invoice.exchange_rate) && (
         <p className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">
           {invoice.error_message ?? "Le traitement a échoué."}
         </p>

@@ -31,6 +31,7 @@ def _to_out(user: User, company: Company | None = None) -> UserOut:
     return UserOut(id=user.id, email=user.email, full_name=user.full_name,
                    role=user.role.value, company_id=user.company_id,
                    company_name=company.name if company else None,
+                   company_currency=company.base_currency if company else "MGA",
                    is_active=user.is_active, theme=user.theme, accent=user.accent,
                    avatar_version=branding.image_version(user.avatar_path),
                    company_logo_version=(branding.image_version(company.logo_path)

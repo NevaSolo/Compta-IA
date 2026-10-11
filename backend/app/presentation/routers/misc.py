@@ -77,7 +77,10 @@ def dashboard(user: User = Depends(get_current_user), db: Session = Depends(get_
         key = invoice.uploaded_at.strftime("%Y-%m")
         bucket = monthly_buckets.setdefault(key, {"count": 0, "total_ttc": 0.0})
         bucket["count"] += 1
-        bucket["total_ttc"] += float(invoice.total_ttc) if invoice.total_ttc else 0.0
+        amount = float(invoice.total_ttc) if invoice.total_ttc else 0.0
+        # Converti dans la devise de l'entreprise quand la facture est en devise étrangère
+        # (sinon des EUR et des MGA seraient additionnés tels quels).
+        bucket["total_ttc"] += amount * float(invoice.exchange_rate or 1)
     monthly_volume = [
         {"month": month, "invoice_count": int(v["count"]), "total_ttc": round(v["total_ttc"], 2)}
         for month, v in sorted(monthly_buckets.items())[-6:]

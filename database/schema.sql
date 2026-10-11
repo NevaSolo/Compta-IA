@@ -21,6 +21,7 @@ CREATE TABLE companies (
   stat           VARCHAR(50)     NULL,
   address        VARCHAR(500)    NULL,
   logo_path      VARCHAR(500)    NULL,
+  base_currency  CHAR(3)         NOT NULL DEFAULT 'MGA',
   is_active      TINYINT(1)      NOT NULL DEFAULT 1,
   created_at     DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id)
@@ -118,6 +119,7 @@ CREATE TABLE invoices (
   total_vat         DECIMAL(15,2)   NULL,
   total_ttc         DECIMAL(15,2)   NULL,
   currency          CHAR(3)         NOT NULL DEFAULT 'MGA',
+  exchange_rate     DECIMAL(18,6)   NULL,
   arithmetic_ok     TINYINT(1)      NULL,
   error_message     VARCHAR(500)    NULL,
   uploaded_at       DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -250,6 +252,10 @@ CREATE TABLE journal_entries (
   rule_id          BIGINT UNSIGNED NULL,
   entry_date       DATE            NOT NULL,
   label            VARCHAR(255)    NOT NULL,
+  currency          CHAR(3)         NOT NULL DEFAULT 'MGA',
+  original_currency CHAR(3)         NULL,
+  original_amount   DECIMAL(15,2)   NULL,
+  exchange_rate     DECIMAL(18,6)   NULL,
   status           ENUM('PROPOSED','CORRECTED','VALIDATED')
                    NOT NULL DEFAULT 'PROPOSED',
   confidence_score DECIMAL(5,4)    NULL,
@@ -345,4 +351,22 @@ CREATE TABLE audit_logs (
   KEY idx_audit_date (created_at),
   CONSTRAINT fk_audit_user FOREIGN KEY (user_id)
     REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB ROW_FORMAT=DYNAMIC;
+
+-- ------------------------------------------------------------
+-- Taux de change (par entreprise) : 1 unite de `currency` = `rate` unites
+-- de la devise de l'entreprise (companies.base_currency)
+-- ------------------------------------------------------------
+CREATE TABLE exchange_rates (
+  id             BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  company_id     BIGINT UNSIGNED NOT NULL,
+  currency       CHAR(3)         NOT NULL,
+  rate           DECIMAL(18,6)   NOT NULL,
+  effective_date DATE            NOT NULL,
+  created_at     DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_rate_company_currency_date (company_id, currency, effective_date),
+  CONSTRAINT fk_rates_company FOREIGN KEY (company_id)
+    REFERENCES companies(id) ON DELETE CASCADE,
+  CONSTRAINT chk_rate_positive CHECK (rate > 0)
 ) ENGINE=InnoDB ROW_FORMAT=DYNAMIC;

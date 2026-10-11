@@ -20,6 +20,7 @@ class CompanyModel(Base):
     stat: Mapped[str | None] = mapped_column(String(50), nullable=True)
     address: Mapped[str | None] = mapped_column(String(500), nullable=True)
     logo_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    base_currency: Mapped[str] = mapped_column(String(3), default="MGA")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
@@ -100,6 +101,7 @@ class InvoiceModel(Base):
     total_vat: Mapped[float | None] = mapped_column(Numeric(15, 2), nullable=True)
     total_ttc: Mapped[float | None] = mapped_column(Numeric(15, 2), nullable=True)
     currency: Mapped[str] = mapped_column(String(3), default="MGA")
+    exchange_rate: Mapped[float | None] = mapped_column(Numeric(18, 6), nullable=True)
     arithmetic_ok: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     error_message: Mapped[str | None] = mapped_column(String(500), nullable=True)
     uploaded_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
@@ -185,6 +187,10 @@ class JournalEntryModel(Base):
         BigInteger, ForeignKey("accounting_rules.id", ondelete="SET NULL"), nullable=True)
     entry_date: Mapped[Date] = mapped_column(Date)
     label: Mapped[str] = mapped_column(String(255))
+    currency: Mapped[str] = mapped_column(String(3), default="MGA")
+    original_currency: Mapped[str | None] = mapped_column(String(3), nullable=True)
+    original_amount: Mapped[float | None] = mapped_column(Numeric(15, 2), nullable=True)
+    exchange_rate: Mapped[float | None] = mapped_column(Numeric(18, 6), nullable=True)
     status: Mapped[str] = mapped_column(
         Enum("PROPOSED", "CORRECTED", "VALIDATED"), default="PROPOSED")
     confidence_score: Mapped[float | None] = mapped_column(Numeric(5, 4), nullable=True)
@@ -240,4 +246,19 @@ class AuditLogModel(Base):
     old_value: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     new_value: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class ExchangeRateModel(Base):
+    """Taux de change d'une entreprise : 1 unité de `currency` = `rate` unités
+    de sa devise de tenue de comptabilité, à partir de `effective_date`."""
+    __tablename__ = "exchange_rates"
+    __table_args__ = (UniqueConstraint("company_id", "currency", "effective_date",
+                                       name="uq_rate_company_currency_date"),)
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True)
+    company_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("companies.id", ondelete="CASCADE"))
+    currency: Mapped[str] = mapped_column(String(3))
+    rate: Mapped[float] = mapped_column(Numeric(18, 6))
+    effective_date: Mapped[Date] = mapped_column(Date)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

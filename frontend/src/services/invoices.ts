@@ -74,3 +74,10 @@ export async function getDashboardStats(): Promise<DashboardStats> {
   const { data } = await api.get<DashboardStats>("/dashboard");
   return data;
 }
+
+export async function setInvoiceRate(id: number, rate: string, saveForCompany: boolean): Promise<Invoice> {
+  const { data } = await api.put<Invoice>(`/invoices/${id}/exchange-rate`, {
+    rate, save_for_company: saveForCompany,
+  });
+  return data;
+}

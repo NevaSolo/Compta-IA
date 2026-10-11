@@ -26,6 +26,7 @@ class UserOut(BaseModel):
     accent: str = "blue"
     avatar_version: int | None = None
     company_logo_version: int | None = None
+    company_currency: str = "MGA"
 
 
 class ProfileUpdate(BaseModel):
@@ -72,6 +73,7 @@ class CompanyOut(BaseModel):
     address: str | None = None
     is_active: bool = True
     logo_version: int | None = None
+    base_currency: str = "MGA"
 
 
 class CompanyCreate(BaseModel):
@@ -103,6 +105,7 @@ class InvoiceOut(BaseModel):
     total_vat: Decimal | None = None
     total_ttc: Decimal | None = None
     currency: str = "MGA"
+    exchange_rate: Decimal | None = None
     arithmetic_ok: bool | None = None
     error_message: str | None = None
     # Id d'une facture plus ancienne qui semble être la même (même TTC et même
@@ -160,7 +163,34 @@ class EntryOut(BaseModel):
     validated_at: datetime | None = None
     total_debit: Decimal
     total_credit: Decimal
+    currency: str = "MGA"
+    original_currency: str | None = None
+    original_amount: Decimal | None = None
+    exchange_rate: Decimal | None = None
     lines: list[EntryLineOut]
+
+
+class ExchangeRateIn(BaseModel):
+    currency: str = Field(pattern="^(MGA|EUR|USD|GBP|CHF)$")
+    rate: Decimal = Field(gt=0, max_digits=18, decimal_places=6)
+    effective_date: date
+
+
+class ExchangeRateOut(BaseModel):
+    id: int
+    currency: str
+    rate: Decimal
+    effective_date: date
+
+
+class CurrencyUpdate(BaseModel):
+    base_currency: str = Field(pattern="^(MGA|EUR|USD|GBP|CHF)$")
+
+
+class InvoiceRateUpdate(BaseModel):
+    rate: Decimal = Field(gt=0, max_digits=18, decimal_places=6)
+    # Mémoriser ce taux dans les paramètres de l'entreprise (à la date de la facture)
+    save_for_company: bool = False
 
 
 class BatchValidateRequest(BaseModel):

@@ -10,12 +10,13 @@ from datetime import date
 from decimal import Decimal
 
 from app.core.config import get_settings
+from app.core.currency import convert_amounts
 from app.domain.entities import (
     DocumentType, ExtractedEntity, Invoice, InvoiceStatus, PipelineStep, Supplier,
 )
 from app.domain.ports import (
-    AccountRepository, EntityExtractor, EntryRepository, InvoiceRepository,
-    OcrResult, RuleRepository, SupplierRepository,
+    AccountRepository, CompanyRepository, EntityExtractor, EntryRepository,
+    ExchangeRateRepository, InvoiceRepository, OcrResult, RuleRepository, SupplierRepository,
 )
 from app.domain.rules import VATCalculator
 from app.infrastructure.ml.classifiers import ConstrainedAccountSuggester, load_active_classifier
@@ -33,7 +34,11 @@ class ProcessInvoicePipelineUseCase:
                  accounts: AccountRepository, suppliers: SupplierRepository,
                  rules: RuleRepository, extractor: EntityExtractor,
                  ocr: OcrOrchestrator | None = None, classifier=None,
-                 account_code_by_id: dict[int, str] | None = None):
+                 account_code_by_id: dict[int, str] | None = None,
+                 companies: CompanyRepository | None = None,
+                 rates: ExchangeRateRepository | None = None):
+        self.companies = companies
+        self.rates = rates
         self.invoices = invoices
         self.entries = entries
         self.accounts = accounts
@@ -73,6 +78,10 @@ class ProcessInvoicePipelineUseCase:
                     invoice_id)
 
     def _run(self, invoice: Invoice) -> None:
+        # Relance : repart d'un état propre (résultats et propositions précédents).
+        self.invoices.reset_pipeline_results(invoice.id)
+        self.entries.delete_unvalidated_by_invoice(invoice.id)
+
         # --- 1. Prétraitement ---------------------------------------------
         invoice.status = InvoiceStatus.PREPROCESSING
         invoice.current_step = PipelineStep.PREPROCESSING
@@ -148,6 +157,24 @@ class ProcessInvoicePipelineUseCase:
             self.invoices.update(invoice)
             return
 
+        # --- 5 bis. Devise : conversion vers la devise de l'entreprise ---------
+        base_currency = self._base_currency(invoice.company_id)
+        rate = None
+        if invoice.currency == base_currency:
+            invoice.exchange_rate = None
+        else:
+            rate = invoice.exchange_rate or self._lookup_rate(invoice, base_currency)
+            if rate is None:
+                invoice.status = InvoiceStatus.ERROR
+                invoice.error_message = (
+                    f"Taux de change {invoice.currency} → {base_currency} manquant : "
+                    "renseignez-le sur la facture ou dans les paramètres de l'entreprise, "
+                    "puis relancez le traitement.")
+                self.invoices.update(invoice)
+                return
+            invoice.exchange_rate = rate
+        self.invoices.update(invoice)
+
         # --- 6. Classification ------------------------------------------------
         invoice.current_step = PipelineStep.CLASSIFICATION
         self.invoices.update(invoice)
@@ -174,6 +201,11 @@ class ProcessInvoicePipelineUseCase:
             self.invoices.update(invoice)
             return
 
+        ht, vat, ttc = invoice.total_ht, invoice.total_vat, invoice.total_ttc
+        if rate is not None:
+            ht, vat, ttc = convert_amounts(ht, vat, ttc, rate)
+        entry_amounts = {"HT": ht, "VAT": vat, "TTC": ttc}
+
         engine = RuleEngine(self.accounts,
                             ConstrainedAccountSuggester(self.account_code_by_id))
         document_label = "Avoir" if invoice.document_type == DocumentType.AVOIR else "Facture"
@@ -183,8 +215,7 @@ class ProcessInvoicePipelineUseCase:
             entry = engine.generate_entry(
                 rule=rule, invoice_id=invoice.id, company_id=invoice.company_id,
                 entry_date=invoice.invoice_date or date.today(), label=label[:255],
-                amounts={"HT": invoice.total_ht, "VAT": invoice.total_vat,
-                         "TTC": invoice.total_ttc},
+                amounts=entry_amounts,
                 invoice_text=ocr_result.raw_text, supplier=supplier,
                 reverse_sides=invoice.document_type == DocumentType.AVOIR)
         except RuleEngineError as exc:
@@ -196,6 +227,11 @@ class ProcessInvoicePipelineUseCase:
         # --- 8. Score de confiance global ---------------------------------------
         invoice.current_step = PipelineStep.CONFIDENCE_SCORING
         self.invoices.update(invoice)
+        entry.currency = base_currency
+        if rate is not None:
+            entry.original_currency = invoice.currency
+            entry.original_amount = invoice.total_ttc
+            entry.exchange_rate = rate
         entry.confidence_score = self._confidence_score(
             ocr_result, entities, classification.probability, entry,
             supplier_known=supplier is not None,
@@ -208,6 +244,18 @@ class ProcessInvoicePipelineUseCase:
                     invoice.id, entry.confidence_score)
 
     # ------------------------------------------------------------- Helpers
+    def _base_currency(self, company_id: int) -> str:
+        company = self.companies.get_by_id(company_id) if self.companies else None
+        return company.base_currency if company else self.settings.default_currency
+
+    def _lookup_rate(self, invoice: Invoice, base_currency: str) -> Decimal | None:
+        """Taux paramétré par l'entreprise à la date de la facture (à défaut, aujourd'hui)."""
+        if self.rates is None:
+            return None
+        found = self.rates.find_applicable(
+            invoice.company_id, invoice.currency, invoice.invoice_date or date.today())
+        return found.rate if found else None
+
     def _apply_entities(self, invoice: Invoice, entities: list[ExtractedEntity]) -> None:
         """Copie les entités critiques sur la facture (dénormalisation de
         lecture assumée — extracted_entities reste la source de vérité)."""

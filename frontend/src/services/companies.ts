@@ -40,3 +40,28 @@ export async function fetchCompanyLogoBlob(companyId: number): Promise<Blob> {
   const { data } = await api.get(`/companies/${companyId}/logo`, { responseType: "blob" });
   return data;
 }
+
+import type { ExchangeRate } from "@/types";
+
+export const CURRENCIES = ["MGA", "EUR", "USD", "GBP", "CHF"] as const;
+
+export async function setBaseCurrency(companyId: number, baseCurrency: string): Promise<Company> {
+  const { data } = await api.patch<Company>(`/companies/${companyId}/currency`, { base_currency: baseCurrency });
+  return data;
+}
+
+export async function listRates(companyId: number): Promise<ExchangeRate[]> {
+  const { data } = await api.get<ExchangeRate[]>(`/companies/${companyId}/rates`);
+  return data;
+}
+
+export async function saveRate(
+  companyId: number, payload: { currency: string; rate: string; effective_date: string },
+): Promise<ExchangeRate> {
+  const { data } = await api.post<ExchangeRate>(`/companies/${companyId}/rates`, payload);
+  return data;
+}
+
+export async function deleteRate(companyId: number, rateId: number): Promise<void> {
+  await api.delete(`/companies/${companyId}/rates/${rateId}`);
+}

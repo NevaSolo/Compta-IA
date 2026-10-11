@@ -11,6 +11,7 @@ import { ExportButtons } from "@/components/ExportButtons";
 import { PageHeader } from "@/components/PageHeader";
 import { EmptyState } from "@/components/EmptyState";
 import { Skeleton } from "@/components/Skeleton";
+import { formatNumber } from "@/utils/format";
 import type { EntryStatus, JournalEntry } from "@/types";
 
 const RELIABLE_CONFIDENCE = 0.8; // seuil « vert » du badge de confiance
@@ -76,6 +77,7 @@ export function EntriesPage() {
   });
 
   const items = data?.items ?? [];
+  const selectedEntries = items.filter((e) => selected.has(e.id));
   const reliableIds = items.filter(isReliable).map((e) => e.id);
   const allReliableSelected = reliableIds.length > 0 && reliableIds.every((id) => selected.has(id));
 
@@ -153,6 +155,12 @@ export function EntriesPage() {
               </div>
               <div className="flex items-center gap-3 text-sm text-slate-500">
                 <span>{entry.entry_date}</span>
+                {entry.original_currency && entry.original_amount && (
+                  <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600"
+                        title="Montant d'origine converti au taux indiqué">
+                    {formatNumber(entry.original_amount)} {entry.original_currency} × {formatNumber(entry.exchange_rate ?? "")}
+                  </span>
+                )}
                 <ConfidenceBadge score={entry.confidence_score} />
               </div>
             </div>
@@ -175,7 +183,7 @@ export function EntriesPage() {
               })}
               <li className="flex justify-between bg-slate-50 px-4 py-2.5 text-sm font-medium text-slate-700">
                 <span>Total</span>
-                <span className="tabular-nums">{entry.total_debit} / {entry.total_credit}</span>
+                <span className="tabular-nums">{entry.total_debit} / {entry.total_credit} {entry.currency}</span>
               </li>
             </ul>
 
@@ -243,13 +251,29 @@ export function EntriesPage() {
 
       <ConfirmDialog
         open={confirming} tone="success" loading={batchMutation.isPending}
-        title={`Valider ${selected.size} écriture(s) ?`}
+        title={`Valider ${selected.size} écriture${selected.size > 1 ? "s" : ""} ?`}
         confirmLabel="Valider définitivement"
         onCancel={() => setConfirming(false)}
         onConfirm={() => batchMutation.mutate([...selected])}
       >
-        Une écriture validée ne peut plus être modifiée. Chaque écriture est contrôlée
-        (équilibre débit = crédit) ; celles qui échouent restent à vérifier.
+        <p>Une écriture validée ne peut plus être modifiée.</p>
+        <ul className="mt-3 divide-y divide-slate-100 overflow-hidden rounded-lg border border-slate-200 text-slate-700">
+          {selectedEntries.slice(0, 5).map((e) => (
+            <li key={e.id} className="flex items-center justify-between gap-3 px-3 py-2">
+              <span className="min-w-0 truncate">{e.label}</span>
+              <span className="shrink-0 tabular-nums font-medium">{formatNumber(e.total_debit)} {e.currency}</span>
+            </li>
+          ))}
+          {selectedEntries.length > 5 && (
+            <li className="bg-slate-50 px-3 py-2 text-xs text-slate-500">
+              et {selectedEntries.length - 5} autre(s)
+            </li>
+          )}
+        </ul>
+        <p className="mt-3 text-xs text-slate-500">
+          Chaque écriture est contrôlée (débit = crédit) avant validation ; celles qui ne passent pas
+          restent à vérifier et vous sont signalées.
+        </p>
       </ConfirmDialog>
 
       {data && data.total > size && (
