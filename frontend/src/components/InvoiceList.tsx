@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { ChevronRight } from "lucide-react";
 import { StatusBadge } from "@/components/StatusBadge";
+import { formatMoney } from "@/utils/format";
 
 interface InvoiceRow {
   id: number;
@@ -29,7 +30,7 @@ function DuplicateBadge({ of }: { of?: number | null }) {
 export function InvoiceList({
   invoices, detailed = false,
 }: { invoices: InvoiceRow[]; detailed?: boolean }) {
-  const amount = (i: InvoiceRow) => (i.total_ttc ? `${i.total_ttc} ${i.currency}` : "—");
+  const amount = (i: InvoiceRow) => (i.total_ttc ? `${formatMoney(i.total_ttc)} ${i.currency}` : "—");
 
   return (
     <>

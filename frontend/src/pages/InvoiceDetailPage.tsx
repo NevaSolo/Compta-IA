@@ -17,6 +17,7 @@ import { Skeleton } from "@/components/Skeleton";
 import { apiErrorMessage } from "@/services/api";
 import { useInvoiceFileUrl } from "@/hooks/useInvoiceFileUrl";
 import { useToast } from "@/context/ToastContext";
+import { formatMoney } from "@/utils/format";
 import { usePipelineProgress } from "@/context/PipelineProgressContext";
 import type { EntryLine, JournalEntry } from "@/types";
 
@@ -211,11 +212,11 @@ export function InvoiceDetailPage() {
               <dt className="text-slate-500">Date</dt>
               <dd className="font-medium">{invoice.invoice_date ?? "—"}</dd>
               <dt className="text-slate-500">Total HT</dt>
-              <dd className="font-medium">{invoice.total_ht ?? "—"}</dd>
+              <dd className="font-medium">{formatMoney(invoice.total_ht)}</dd>
               <dt className="text-slate-500">TVA</dt>
-              <dd className="font-medium">{invoice.total_vat ?? "—"}</dd>
+              <dd className="font-medium">{formatMoney(invoice.total_vat)}</dd>
               <dt className="text-slate-500">Total TTC</dt>
-              <dd className="font-medium">{invoice.total_ttc ?? "—"} {invoice.currency}</dd>
+              <dd className="font-medium">{formatMoney(invoice.total_ttc)} {invoice.currency}</dd>
               <dt className="text-slate-500">Langue détectée</dt>
               <dd className="font-medium">{invoice.language ?? "—"}</dd>
             </dl>
@@ -354,7 +355,7 @@ function EntryPanel({
                 <p className="font-mono text-sm text-slate-700">{line.account_code}</p>
                 <p className="text-sm text-slate-600">{line.label}</p>
                 <div className="flex justify-between text-sm tabular-nums">
-                  <span>Débit : {line.debit}</span><span>Crédit : {line.credit}</span>
+                  <span>Débit : {formatMoney(line.debit)}</span><span>Crédit : {formatMoney(line.credit)}</span>
                 </div>
               </>
             ) : (
@@ -392,7 +393,7 @@ function EntryPanel({
         <li className="flex justify-between px-1 text-sm font-semibold tabular-nums">
           <span>Total</span>
           <span className={isBalanced ? "" : "text-red-600"}>
-            {totalDebit.toFixed(2)} / {totalCredit.toFixed(2)}
+            {formatMoney(totalDebit)} / {formatMoney(totalCredit)}
           </span>
         </li>
       </ul>
@@ -443,7 +444,7 @@ function EntryPanel({
                 )}
               </td>
               <td className="py-1.5 pr-2 text-right">
-                {readOnly ? line.debit : (
+                {readOnly ? formatMoney(line.debit) : (
                   <input
                     value={line.debit} onChange={(e) => updateLine(i, "debit", e.target.value)}
                     className="w-28 rounded-md border border-slate-300 px-2 py-1 text-right text-sm"
@@ -451,7 +452,7 @@ function EntryPanel({
                 )}
               </td>
               <td className="py-1.5 text-right">
-                {readOnly ? line.credit : (
+                {readOnly ? formatMoney(line.credit) : (
                   <input
                     value={line.credit} onChange={(e) => updateLine(i, "credit", e.target.value)}
                     className="w-28 rounded-md border border-slate-300 px-2 py-1 text-right text-sm"
@@ -466,10 +467,10 @@ function EntryPanel({
           <tr className="border-t border-slate-200 font-semibold">
             <td colSpan={2} className="pt-2">Total</td>
             <td className={`pt-2 text-right ${isBalanced ? "" : "text-red-600"}`}>
-              {totalDebit.toFixed(2)}
+              {formatMoney(totalDebit)}
             </td>
             <td className={`pt-2 text-right ${isBalanced ? "" : "text-red-600"}`}>
-              {totalCredit.toFixed(2)}
+              {formatMoney(totalCredit)}
             </td>
             <td />
           </tr>
@@ -534,7 +535,7 @@ function PaymentInfo({
         {rows.map((r) => (
           <div key={r.type} className="contents">
             <dt className="text-slate-500">{INFO_LABELS[r.type]}</dt>
-            <dd className="text-right font-medium tabular-nums sm:text-left">{r.amount} {currency}</dd>
+            <dd className="text-right font-medium tabular-nums sm:text-left">{formatMoney(r.amount)} {currency}</dd>
           </div>
         ))}
       </dl>
@@ -542,7 +543,7 @@ function PaymentInfo({
         <p className={`mt-2 text-xs ${coherent ? "text-emerald-700" : "text-amber-700"}`}>
           {coherent
             ? "Cohérent : TTC − acompte = net à payer."
-            : `Écart : TTC − acompte = ${expected.toFixed(2)}, mais le net à payer lu est ${net}. À vérifier.`}
+            : `Écart : TTC − acompte = ${formatMoney(expected)}, mais le net à payer lu est ${formatMoney(net)}. À vérifier.`}
         </p>
       )}
     </div>

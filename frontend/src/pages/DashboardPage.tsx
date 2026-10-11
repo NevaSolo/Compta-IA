@@ -8,6 +8,7 @@ import {
   TrendingUp, type LucideIcon,
 } from "lucide-react";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
+import { formatMoney, formatNumber } from "@/utils/format";
 import { getDashboardStats } from "@/services/invoices";
 import { InvoiceList } from "@/components/InvoiceList";
 import { PageHeader } from "@/components/PageHeader";
@@ -152,10 +153,10 @@ export function DashboardPage() {
                 <YAxis yAxisId="left" tick={{ fontSize: 12 }} stroke="#94a3b8"
                        allowDecimals={false}
                        label={isPhone ? undefined : { value: "Factures", angle: -90, position: "insideLeft", fontSize: 11, fill: "#94a3b8" }} />
-                <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 12 }} stroke="#94a3b8"
-                       hide={isPhone} tickFormatter={(v: number) => (v >= 1e6 ? `${(v / 1e6).toFixed(0)} M` : String(v))}
+                <YAxis yAxisId="right" orientation="right" width={64} tick={{ fontSize: 12 }} stroke="#94a3b8"
+                       hide={isPhone} tickFormatter={(v: number) => (v >= 1e6 ? `${formatNumber(v / 1e6)} M` : formatNumber(v))}
                        label={isPhone ? undefined : { value: "Total TTC", angle: 90, position: "insideRight", fontSize: 11, fill: "#94a3b8" }} />
-                <Tooltip />
+                <Tooltip formatter={(value, name) => (name === "Total TTC" ? formatMoney(value as number) : formatNumber(value as number))} />
                 <Legend />
                 <Bar yAxisId="left" dataKey="invoice_count" name="Factures" fill="#2563eb" radius={[4, 4, 0, 0]} />
                 <Line yAxisId="right" dataKey="total_ttc" name="Total TTC" stroke="#f59e0b" strokeWidth={2} dot={{ r: 3 }} />

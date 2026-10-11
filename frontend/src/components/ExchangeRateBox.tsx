@@ -6,7 +6,7 @@ import { usePipelineProgress } from "@/context/PipelineProgressContext";
 import { useToast } from "@/context/ToastContext";
 import { apiErrorMessage } from "@/services/api";
 import { reprocessInvoice, setInvoiceRate } from "@/services/invoices";
-import { formatNumber } from "@/utils/format";
+import { formatMoney, formatNumber } from "@/utils/format";
 import type { Invoice } from "@/types";
 
 /** Taux de change d'une facture en devise étrangère : celui qui a servi à
@@ -69,7 +69,7 @@ export function ExchangeRateBox({ invoice, baseCurrency }: { invoice: Invoice; b
                  en ${baseCurrency} pour générer l'écriture.`
               : `1 ${invoice.currency} = ${formatNumber(invoice.exchange_rate)} ${baseCurrency}`
                 + (converted !== null
-                  ? ` · ${formatNumber(invoice.total_ttc)} ${invoice.currency} = ${formatNumber(converted.toFixed(2))} ${baseCurrency}`
+                  ? ` · ${formatMoney(invoice.total_ttc)} ${invoice.currency} = ${formatMoney(converted)} ${baseCurrency}`
                   : "")}
           </p>
 

@@ -11,7 +11,7 @@ import { ExportButtons } from "@/components/ExportButtons";
 import { PageHeader } from "@/components/PageHeader";
 import { EmptyState } from "@/components/EmptyState";
 import { Skeleton } from "@/components/Skeleton";
-import { formatNumber } from "@/utils/format";
+import { formatMoney, formatNumber } from "@/utils/format";
 import type { EntryStatus, JournalEntry } from "@/types";
 
 const RELIABLE_CONFIDENCE = 0.8; // seuil « vert » du badge de confiance
@@ -176,14 +176,14 @@ export function EntriesPage() {
                       <p className="mt-0.5 text-xs text-slate-400">{isDebit ? "Débit" : "Crédit"}</p>
                     </div>
                     <span className="shrink-0 text-sm font-medium tabular-nums text-slate-800">
-                      {isDebit ? line.debit : line.credit}
+                      {formatMoney(isDebit ? line.debit : line.credit)}
                     </span>
                   </li>
                 );
               })}
               <li className="flex justify-between bg-slate-50 px-4 py-2.5 text-sm font-medium text-slate-700">
                 <span>Total</span>
-                <span className="tabular-nums">{entry.total_debit} / {entry.total_credit} {entry.currency}</span>
+                <span className="tabular-nums">{formatMoney(entry.total_debit)} / {formatMoney(entry.total_credit)} {entry.currency}</span>
               </li>
             </ul>
 
@@ -204,10 +204,10 @@ export function EntriesPage() {
                       <td className="px-5 py-2 font-mono text-slate-700">{line.account_code}</td>
                       <td className="px-5 py-2 text-slate-600">{line.label}</td>
                       <td className="px-5 py-2 text-right tabular-nums">
-                        {Number(line.debit) > 0 ? line.debit : ""}
+                        {Number(line.debit) > 0 ? formatMoney(line.debit) : ""}
                       </td>
                       <td className="px-5 py-2 text-right tabular-nums">
-                        {Number(line.credit) > 0 ? line.credit : ""}
+                        {Number(line.credit) > 0 ? formatMoney(line.credit) : ""}
                       </td>
                       <td className="px-5 py-2">
                         {line.suggested_by_ml ? <ConfidenceBadge score={line.account_confidence} /> : (
@@ -220,8 +220,8 @@ export function EntriesPage() {
                 <tfoot>
                   <tr className="border-t border-slate-200 font-medium text-slate-700">
                     <td className="px-5 py-2" colSpan={2}>Total</td>
-                    <td className="px-5 py-2 text-right tabular-nums">{entry.total_debit}</td>
-                    <td className="px-5 py-2 text-right tabular-nums">{entry.total_credit}</td>
+                    <td className="px-5 py-2 text-right tabular-nums">{formatMoney(entry.total_debit)}</td>
+                    <td className="px-5 py-2 text-right tabular-nums">{formatMoney(entry.total_credit)}</td>
                     <td />
                   </tr>
                 </tfoot>
@@ -261,7 +261,7 @@ export function EntriesPage() {
           {selectedEntries.slice(0, 5).map((e) => (
             <li key={e.id} className="flex items-center justify-between gap-3 px-3 py-2">
               <span className="min-w-0 truncate">{e.label}</span>
-              <span className="shrink-0 tabular-nums font-medium">{formatNumber(e.total_debit)} {e.currency}</span>
+              <span className="shrink-0 tabular-nums font-medium">{formatMoney(e.total_debit)} {e.currency}</span>
             </li>
           ))}
           {selectedEntries.length > 5 && (
