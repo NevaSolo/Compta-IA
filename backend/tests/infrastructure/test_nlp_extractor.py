@@ -210,3 +210,93 @@ class TestInternationalAndComplexLayouts:
         found = self._extract(block("00001 00001 12345678901", x=20, y=100, w=200),
                               block("TOTAL TTC", x=400, y=100), block("9 000 000", x=520, y=100))
         assert found["TOTAL_TTC"].normalized_value == "9000000"
+
+
+class TestSeveralCompetingTotals:
+    """Facture réelle « Helios » : trois montants à payer (TTC 47 104,03 ; net à
+    payer après acompte 42 104,03 ; net avec escompte 41 261,95) et deux HT
+    (avant/après remise). Le TTC retenu était le dernier de la page : 41 261,95,
+    d'où « HT + TVA ≠ TTC » puis une écriture déséquilibrée."""
+
+    def setup_method(self):
+        self.extractor = HybridExtractor(use_spacy=False)
+
+    def _helios(self):
+        rows = [("Total HT avant remise", "40 674,00 €"), ("Remise commerciale (3 %)", "-1 220,22 €"),
+                ("Total HT net", "39 453,78 €"), ("Total TVA", "7 650,25 €"),
+                ("Total TTC", "47 104,03 €"), ("Acompte déjà versé", "-5 000,00 €"),
+                ("NET À PAYER", "42 104,03 €"), ("Escompte 2 % avant le", "-842,08 €"),
+                ("Soit net à payer avec", "41 261,95 €")]
+        blocks = []
+        for i, (label, amount) in enumerate(rows):
+            blocks += [block(label, x=400, y=100 + 30 * i, w=150), block(amount, x=600, y=100 + 30 * i)]
+        blocks.append(block("N° TVA : FR47 512 874 963", x=20, y=60, w=200))
+        return OcrResult(engine="PDF_TEXT", raw_text="", mean_confidence=0.99, blocks=blocks)
+
+    def _by_type(self, ocr):
+        return {e.entity_type: e for e in self.extractor.extract(ocr, "fr")}
+
+    def test_ttc_is_the_gross_total_not_the_net_to_pay(self):
+        found = self._by_type(self._helios())
+        assert found["TOTAL_TTC"].normalized_value == "47104.03"
+
+    def test_ht_is_the_net_after_discount_not_the_amount_before_discount(self):
+        found = self._by_type(self._helios())
+        assert found["TOTAL_HT"].normalized_value == "39453.78"
+        assert found["TOTAL_VAT"].normalized_value == "7650.25"
+
+    def test_extracted_totals_satisfy_ht_plus_vat_equals_ttc(self):
+        from decimal import Decimal
+        found = self._by_type(self._helios())
+        assert (Decimal(found["TOTAL_HT"].normalized_value) + Decimal(found["TOTAL_VAT"].normalized_value)
+                == Decimal(found["TOTAL_TTC"].normalized_value))
+
+    def test_deposit_and_early_payment_discount_are_reported_but_not_used_as_totals(self):
+        found = self._by_type(self._helios())
+        assert found["DEPOSIT_PAID"].normalized_value == "5000.00"
+        assert found["EARLY_PAYMENT_DISCOUNT"].normalized_value == "842.08"  # pas 41 261,95
+
+    def test_the_arithmetic_picks_the_consistent_total_when_labels_rank_equally(self):
+        # Deux libellés de même rang : celui qui égale HT + TVA l'emporte,
+        # même s'il est plus haut sur la page.
+        ocr = OcrResult(engine="PDF_TEXT", raw_text="", mean_confidence=0.99, blocks=[
+            block("Total HT", x=400, y=100), block("100,00", x=600, y=100),
+            block("Total TVA", x=400, y=130), block("20,00", x=600, y=130),
+            block("Amount payable", x=400, y=200), block("120,00", x=600, y=200),
+            block("Amount due", x=400, y=300), block("90,00", x=600, y=300)])
+        assert self._by_type(ocr)["TOTAL_TTC"].normalized_value == "120.00"
+
+    def test_without_any_consistent_total_the_best_ranked_label_wins(self):
+        ocr = OcrResult(engine="PDF_TEXT", raw_text="", mean_confidence=0.99, blocks=[
+            block("Total HT", x=400, y=100), block("100,00", x=600, y=100),
+            block("Total TVA", x=400, y=130), block("20,00", x=600, y=130),
+            block("Total TTC", x=400, y=200), block("125,00", x=600, y=200),
+            block("Net à payer", x=400, y=300), block("90,00", x=600, y=300)])
+        assert self._by_type(ocr)["TOTAL_TTC"].normalized_value == "125.00"
+
+    def test_a_vat_registration_number_is_not_a_vat_amount(self):
+        ocr = OcrResult(engine="PDF_TEXT", raw_text="", mean_confidence=0.99, blocks=[
+            block("N° TVA :", x=20, y=60), block("512 874 963,00", x=200, y=60)])
+        assert "TOTAL_VAT" not in self._by_type(ocr)
+
+
+class TestCurrencyDetection:
+    def setup_method(self):
+        self.extractor = HybridExtractor(use_spacy=False)
+
+    def _currency(self, *blocks):
+        ocr = OcrResult(engine="PDF_TEXT", raw_text="", mean_confidence=0.99, blocks=list(blocks))
+        found = {e.entity_type: e for e in self.extractor.extract(ocr, "fr")}
+        return found["CURRENCY"].normalized_value if "CURRENCY" in found else None
+
+    def test_euro_symbol_is_recognised(self):
+        # « € » seul n'était jamais reconnu (\b ne s'applique pas à un symbole) : MGA par défaut
+        assert self._currency(block("Total TTC", x=400, y=100), block("47 104,03 €", x=600, y=100)) == "EUR"
+
+    def test_dollar_and_pound_symbols(self):
+        assert self._currency(block("Total TTC", x=400, y=100), block("$1,200.00", x=600, y=100)) == "USD"
+        assert self._currency(block("Total TTC", x=400, y=100), block("£950.00", x=600, y=100)) == "GBP"
+
+    def test_currency_written_next_to_the_totals_wins_over_a_footer_symbol(self):
+        assert self._currency(block("Capital social 50 000 €", x=20, y=20, w=200),
+                              block("Total TTC", x=400, y=100), block("120 000 Ar", x=600, y=100)) == "MGA"

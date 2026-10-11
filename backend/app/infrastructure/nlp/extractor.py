@@ -6,7 +6,9 @@
 """
 import logging
 import re
+from dataclasses import dataclass
 from datetime import datetime
+from decimal import Decimal, InvalidOperation
 
 from app.domain.entities import DocumentType, ExtractedEntity, ExtractionMethod
 from app.domain.ports import EntityExtractor, OcrBlock, OcrResult
@@ -65,7 +67,37 @@ VAT_EXEMPT_RE = re.compile(
     r"(tva|vat|taxe)[^.:;]{0,40}(non\s+applicable|exon[ée]r|exempt)"
     r"|(non\s+applicable|exon[ée]r|exempt)[^.:;]{0,40}(tva|vat)"
     r"|art(?:icle|\.)?\s*293\s*b", re.IGNORECASE)
-CURRENCY_RE = re.compile(r"\b(ariary|mga|ar|eur|€|usd|\$)\b", re.IGNORECASE)
+# --- Choix entre plusieurs montants candidats ---------------------------------
+# Une facture comporte souvent plusieurs « totaux » : TTC, net à payer (après
+# acompte), net avec escompte, HT avant/après remise... Prendre « le plus bas de
+# la page » ou « le plus proche de 70 % de la hauteur » revenait à tirer au sort.
+# On classe les libellés (rang 0 = le plus fiable) puis on arbitre par le calcul.
+TTC_RANKS = [
+    (0, r"total\s*ttc|montant\s*ttc|grand\s*total|total\s*(?:tax|vat)\s*incl|total\s*toutes?\s*taxes"),
+    (1, r"net\s*[àa]\s*payer|amount\s*due|total\s*due|balance\s*due|total\s*payable"
+        r"|amount\s*payable|total\s*[àa]\s*payer"),
+]
+HT_RANKS = [
+    (2, r"avant\s*remise|before\s*discount|hors\s*remise|\bbrut\b|\bgross\b"),
+    (1, r"sub\s*-?\s*total|sous\s*-?\s*total"),
+]
+VAT_PRIMARY = r"total\s*(?:tva|vat|tax)|montant\s*(?:de\s*la\s*)?(?:tva|vat)|vat\s*amount|tax\s*amount"
+# Libellés qui ne désignent jamais le montant cherché : un escompte est
+# conditionnel (jamais le TTC), « N° TVA » est un identifiant, pas une taxe.
+EXCLUDED_ANCHORS = {
+    "TOTAL_TTC": re.compile(r"escompte|early\s*payment|prompt\s*payment|rebate", re.IGNORECASE),
+    "TOTAL_VAT": re.compile(r"n\s*[°º]|\bid\b|identif|num[ée]ro|number|siret|siren|registration|intracom",
+                            re.IGNORECASE),
+}
+TOLERANCE = Decimal("0.02")  # écart d'arrondi toléré entre HT + TVA et TTC
+
+# Montants purement informatifs (n'entrent pas dans l'écriture) : montrés au comptable
+INFO_ANCHORS = {
+    "DEPOSIT_PAID": r"acompte|deposit|advance\s*payment",
+    "EARLY_PAYMENT_DISCOUNT": r"escompte|early\s*payment\s*discount",
+}
+
+CURRENCY_RE = re.compile(r"(?<![A-Za-z])(ariary|mga|ar|eur|usd|gbp|chf)(?![A-Za-z])|(€|\$|£)", re.IGNORECASE)
 
 # Titres de document et en-têtes de colonne génériques (garde-fou pour
 # l'extraction du fournisseur : un bloc "FACTURE", "FACTURE D'AVOIR",
@@ -191,6 +223,27 @@ def _looks_like_money(raw: str) -> bool:
                 or len(digits) >= 4)
 
 
+@dataclass
+class _Candidate:
+    """Un montant candidat pour un total, avec le rang du libellé qui l'a désigné."""
+    raw: str
+    normalized: str | None
+    value: Decimal | None
+    block: OcrBlock
+    confidence: float
+    rank: int
+    exempt: bool = False
+
+    @classmethod
+    def make(cls, raw: str, block: OcrBlock, confidence: float, rank: int) -> "_Candidate":
+        normalized = normalize_amount(raw)
+        try:
+            value = Decimal(normalized) if normalized else None
+        except InvalidOperation:
+            value = None
+        return cls(raw, normalized, value, block, confidence, rank)
+
+
 class HybridExtractor(EntityExtractor):
     """Implémentation du port EntityExtractor : regex ancrées + NER optionnel."""
 
@@ -204,9 +257,12 @@ class HybridExtractor(EntityExtractor):
                            confidence=b.confidence) for b in ocr_result.blocks]
         entities: list[ExtractedEntity] = []
         entities += self._extract_amounts(blocks)
+        entities += self._extract_informative_amounts(blocks)
         entities += self._extract_identifiers(blocks)
         entities += self._extract_date(blocks)
-        entities += self._extract_currency(blocks)
+        entities += self._extract_currency(
+            blocks, preferred=[e.source_block["text"] for e in entities
+                               if e.entity_type in ("TOTAL_TTC", "TOTAL_HT")])
         supplier = self._extract_supplier(blocks, language)
         if supplier:
             entities.append(supplier)
@@ -214,77 +270,138 @@ class HybridExtractor(EntityExtractor):
 
     # -------------------------------------------------- Montants ancrés
     def _extract_amounts(self, blocks: list[OcrBlock]) -> list[ExtractedEntity]:
-        found: dict[str, ExtractedEntity] = {}
         max_y = max((_block_center_y(b) for b in blocks), default=0)
+        pools = {t: self._collect_candidates(t, blocks) for t in ("TOTAL_TTC", "TOTAL_HT", "TOTAL_VAT")}
 
-        for entity_type in ("TOTAL_TTC", "TOTAL_HT", "TOTAL_VAT"):
-            own_candidates = []
-            exempt_anchors = []    # mentions « TVA non applicable » (TVA seulement)
-            right_candidates = []  # montant à droite du libellé : cas normal
-            left_candidates = []   # à gauche : n'est retenu que s'il ressemble à un montant
+        def position(entity_type: str, c: "_Candidate") -> float:
+            # À rang égal : le TTC le plus bas de la page ; HT/TVA vers 70 % de la hauteur
+            y = _block_center_y(c.block)
+            return y if entity_type == "TOTAL_TTC" else -abs(y - max_y * 0.7)
+
+        # Arbitrage par le calcul : seul le trio (HT, TVA, TTC) qui vérifie
+        # HT + TVA = TTC est cohérent. Indépendant de la langue et de la mise en page.
+        chosen: dict[str, _Candidate] = {}
+        if all(pools.values()):
+            best_key, best = None, None
+            for ht in pools["TOTAL_HT"]:
+                for vat in pools["TOTAL_VAT"]:
+                    for ttc in pools["TOTAL_TTC"]:
+                        if abs(ht.value + vat.value - ttc.value) > TOLERANCE:
+                            continue
+                        key = (-(ht.rank + vat.rank + ttc.rank), position("TOTAL_TTC", ttc),
+                               position("TOTAL_HT", ht), position("TOTAL_VAT", vat))
+                        if best_key is None or key > best_key:
+                            best_key, best = key, (ht, vat, ttc)
+            if best:
+                chosen = {"TOTAL_HT": best[0], "TOTAL_VAT": best[1], "TOTAL_TTC": best[2]}
+        # Sinon (un total manquant, ou aucun trio cohérent) : meilleur candidat par type
+        for entity_type, pool in pools.items():
+            if entity_type not in chosen and pool:
+                chosen[entity_type] = max(pool, key=lambda c: (-c.rank, position(entity_type, c)))
+
+        return [ExtractedEntity(
+                    entity_type=t, raw_value=c.raw, normalized_value="0.00" if c.exempt else c.normalized,
+                    confidence=round(c.confidence, 4), method=ExtractionMethod.REGEX,
+                    source_block={"bbox": c.block.bbox, "text": c.block.text})
+                for t, c in chosen.items()]
+
+    @staticmethod
+    def _rank(entity_type: str, anchor_text: str) -> int:
+        lowered = anchor_text.lower()
+        if entity_type == "TOTAL_TTC":
+            return next((r for r, p in TTC_RANKS if re.search(p, lowered)), 2)
+        if entity_type == "TOTAL_HT":
+            return next((r for r, p in HT_RANKS if re.search(p, lowered)), 0)
+        return 0 if re.search(VAT_PRIMARY, lowered) else 1
+
+    def _collect_candidates(self, entity_type: str, blocks: list[OcrBlock]) -> list["_Candidate"]:
+        own_candidates, right_candidates, left_candidates = [], [], []
+        exempt_anchors = []  # mentions « TVA non applicable » (TVA seulement)
+        excluded = EXCLUDED_ANCHORS.get(entity_type)
+        for anchor in blocks:
+            if not _is_label_like(anchor.text):
+                continue
+            if not _matches_any(anchor.text, ANCHORS[entity_type]):
+                continue
+            if excluded and excluded.search(anchor.text):
+                continue
+            rank = self._rank(entity_type, anchor.text)
+            # 1) montant dans le bloc ancre lui-même — on exclut les
+            # nombres suivis de '%' : pour l'ancre TVA, "20%" est un taux,
+            # pas le montant de la taxe (bug corrigé après tests unitaires).
+            is_exempt = entity_type == "TOTAL_VAT" and VAT_EXEMPT_RE.search(anchor.text)
+            if is_exempt:
+                exempt_anchors.append(anchor)
+            own = [] if is_exempt else [
+                m for m in AMOUNT_RE.findall(anchor.text)
+                if not re.search(re.escape(m) + r"\s*%", anchor.text)]
+            if own:
+                own_candidates.append(_Candidate.make(own[-1], anchor, anchor.confidence, rank))
+            # 2) montant dans un bloc aligné horizontalement (même ligne)
+            for other in blocks:
+                if other is anchor or not _same_visual_line(anchor, other):
+                    continue
+                amounts = [m for m in AMOUNT_RE.findall(other.text)
+                           if not re.search(re.escape(m) + r"\s*%", other.text)]
+                if not amounts:
+                    continue
+                candidate = _Candidate.make(amounts[-1], other,
+                                            min(anchor.confidence, other.confidence), rank)
+                if _block_center_x(other) > _block_center_x(anchor):
+                    right_candidates.append(candidate)
+                elif _looks_like_money(amounts[-1]):
+                    # Bug réel : sur une facture à deux colonnes, « Net
+                    # Subtotal » (colonne de droite) partageait sa ligne avec
+                    # un IBAN (colonne de gauche) dont le dernier chiffre,
+                    # « 2 », était pris pour le montant HT.
+                    left_candidates.append(candidate)
+        # Priorité systématique au montant ALIGNÉ (ligne voisine) sur un
+        # nombre trouvé dans le bloc-ancre lui-même : le second n'est
+        # utilisé qu'en repli. Bug réel corrigé : l'OCR peut corrompre
+        # un taux ("20%") en un nombre qui ressemble à un montant valide
+        # ("209" si le "%" est lu comme un "9"), sans le signe "%" que le
+        # garde-fou ci-dessus cherche — cette valeur parasite l'emportait
+        # alors à tort sur le véritable montant aligné.
+        candidates = [c for c in (right_candidates or left_candidates or own_candidates)
+                      if c.value is not None]
+        if not candidates and exempt_anchors:
+            # Aucun montant de taxe, mais une mention d'exonération : TVA = 0
+            # (et non « absente », ce qui ferait appliquer le taux par défaut).
+            candidates = [_Candidate("0", "0.00", Decimal("0"), exempt_anchors[0],
+                                     exempt_anchors[0].confidence, 0, exempt=True)]
+        return candidates
+
+    def _extract_informative_amounts(self, blocks: list[OcrBlock]) -> list[ExtractedEntity]:
+        """Acompte déjà versé, escompte : à porter à la connaissance du comptable
+        mais jamais dans l'écriture (l'acompte a déjà été enregistré à son
+        versement ; l'escompte n'existe que si le client paie avant l'échéance)."""
+        found = []
+        for entity_type, pattern in INFO_ANCHORS.items():
+            entity = None
             for anchor in blocks:
-                if not _is_label_like(anchor.text):
+                if entity or not (_is_label_like(anchor.text) and re.search(pattern, anchor.text.lower())):
                     continue
-                if not _matches_any(anchor.text, ANCHORS[entity_type]):
-                    continue
-                # 1) montant dans le bloc ancre lui-même — on exclut les
-                # nombres suivis de '%' : pour l'ancre TVA, "20%" est un taux,
-                # pas le montant de la taxe (bug corrigé après tests unitaires).
-                is_exempt = entity_type == "TOTAL_VAT" and VAT_EXEMPT_RE.search(anchor.text)
-                if is_exempt:
-                    exempt_anchors.append(anchor)
-                own = [] if is_exempt else [
-                    m for m in AMOUNT_RE.findall(anchor.text)
-                    if not re.search(re.escape(m) + r"\s*%", anchor.text)]
-                if own:
-                    own_candidates.append((own[-1], anchor, anchor.confidence))
-                # 2) montant dans un bloc aligné horizontalement (même ligne)
                 for other in blocks:
                     if other is anchor or not _same_visual_line(anchor, other):
                         continue
-                    amounts = [m for m in AMOUNT_RE.findall(other.text)
-                               if not re.search(re.escape(m) + r"\s*%", other.text)]
-                    if not amounts:
+                    if _block_center_x(other) <= _block_center_x(anchor):
                         continue
-                    candidate = (amounts[-1], other, min(anchor.confidence, other.confidence))
-                    if _block_center_x(other) > _block_center_x(anchor):
-                        right_candidates.append(candidate)
-                    elif _looks_like_money(amounts[-1]):
-                        # Bug réel : sur une facture à deux colonnes, « Net
-                        # Subtotal » (colonne de droite) partageait sa ligne avec
-                        # un IBAN (colonne de gauche) dont le dernier chiffre,
-                        # « 2 », était pris pour le montant HT.
-                        left_candidates.append(candidate)
-            # Priorité systématique au montant ALIGNÉ (ligne voisine) sur un
-            # nombre trouvé dans le bloc-ancre lui-même : le second n'est
-            # utilisé qu'en repli. Bug réel corrigé : l'OCR peut corrompre
-            # un taux ("20%") en un nombre qui ressemble à un montant valide
-            # ("209" si le "%" est lu comme un "9"), sans le signe "%" que le
-            # garde-fou ci-dessus cherche — cette valeur parasite l'emportait
-            # alors à tort sur le véritable montant aligné.
-            candidates = right_candidates or left_candidates or own_candidates
-            if not candidates and exempt_anchors:
-                # Aucun montant de taxe, mais une mention d'exonération : TVA = 0
-                # (et non « absente », ce qui ferait appliquer le taux par défaut).
-                found["TOTAL_VAT"] = ExtractedEntity(
-                    entity_type="TOTAL_VAT", raw_value="0", normalized_value="0.00",
-                    confidence=round(exempt_anchors[0].confidence, 4),
-                    method=ExtractionMethod.REGEX,
-                    source_block={"bbox": exempt_anchors[0].bbox, "text": exempt_anchors[0].text})
-            if candidates:
-                # heuristique : pour le TTC, préférer le candidat le plus bas sur la page
-                raw, block, conf = max(
-                    candidates,
-                    key=lambda c: _block_center_y(c[1]) if entity_type == "TOTAL_TTC"
-                    else -abs(_block_center_y(c[1]) - max_y * 0.7))
-                normalized = normalize_amount(raw)
-                if normalized:
-                    found[entity_type] = ExtractedEntity(
-                        entity_type=entity_type, raw_value=raw,
-                        normalized_value=normalized, confidence=round(conf, 4),
-                        method=ExtractionMethod.REGEX,
-                        source_block={"bbox": block.bbox, "text": block.text})
-        return list(found.values())
+                    amounts = AMOUNT_RE.findall(other.text)
+                    # un escompte est une déduction : montant signé « - », jamais le net à payer voisin
+                    if not amounts or (entity_type == "EARLY_PAYMENT_DISCOUNT"
+                                       and not re.match(r"\s*[-−–]", other.text)):
+                        continue
+                    normalized = normalize_amount(amounts[-1])
+                    if normalized:
+                        entity = ExtractedEntity(
+                            entity_type=entity_type, raw_value=amounts[-1], normalized_value=normalized,
+                            confidence=round(min(anchor.confidence, other.confidence), 4),
+                            method=ExtractionMethod.REGEX,
+                            source_block={"bbox": other.bbox, "text": other.text})
+                        break
+            if entity:
+                found.append(entity)
+        return found
 
     # -------------------------------------------- NIF / STAT / n° facture
     def _extract_identifiers(self, blocks: list[OcrBlock]) -> list[ExtractedEntity]:
@@ -379,15 +496,22 @@ class HybridExtractor(EntityExtractor):
             return None
 
     # ------------------------------------------------------------ Devise
-    def _extract_currency(self, blocks: list[OcrBlock]) -> list[ExtractedEntity]:
-        mapping = {"ariary": "MGA", "mga": "MGA", "ar": "MGA",
-                   "eur": "EUR", "€": "EUR", "usd": "USD", "$": "USD"}
-        for block in blocks:
+    def _extract_currency(self, blocks: list[OcrBlock],
+                          preferred: list[str] | None = None) -> list[ExtractedEntity]:
+        mapping = {"ariary": "MGA", "mga": "MGA", "ar": "MGA", "eur": "EUR", "€": "EUR",
+                   "usd": "USD", "$": "USD", "gbp": "GBP", "£": "GBP", "chf": "CHF"}
+        # La devise la plus fiable est celle écrite à côté des montants retenus
+        # (« 47 104,03 € ») : un « € » isolé en pied de page (capital social)
+        # ne doit pas l'emporter sur des montants en Ariary.
+        preferred = set(preferred or [])
+        ordered = [b for b in blocks if b.text in preferred] + list(blocks)
+        for block in ordered:
             match = CURRENCY_RE.search(block.text)
             if match:
+                symbol = match.group(1) or match.group(2)
                 return [ExtractedEntity(
-                    entity_type="CURRENCY", raw_value=match.group(1),
-                    normalized_value=mapping.get(match.group(1).lower(), "MGA"),
+                    entity_type="CURRENCY", raw_value=symbol,
+                    normalized_value=mapping.get(symbol.lower(), "MGA"),
                     confidence=round(block.confidence, 4),
                     method=ExtractionMethod.REGEX,
                     source_block={"bbox": block.bbox, "text": block.text})]
