@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { FolderOpen, Search, SlidersHorizontal, X } from "lucide-react";
 import { listInvoices, type InvoiceFilters } from "@/services/invoices";
@@ -17,7 +18,14 @@ const STATUS_FILTERS: { value: string; label: string }[] = [
 ];
 
 export function HistoryPage() {
-  const [status, setStatus] = useState("");
+  // Le statut vit dans l'adresse (?status=VALIDATED) : les cartes du tableau de bord y renvoient
+  // directement, et le filtre survit à un rechargement ou à un retour en arrière.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requested = searchParams.get("status") ?? "";
+  const status = STATUS_FILTERS.some((f) => f.value === requested) ? requested : "";
+  function setStatus(value: string) {
+    setSearchParams(value ? { status: value } : {}, { replace: true });
+  }
   const [page, setPage] = useState(1);
   const size = 15;
   const [search, setSearch] = useState("");

@@ -81,7 +81,16 @@ class VATCalculator:
           On retient alors HT = TTC et TVA = 0.
         """
         if ht is not None and ttc is not None and vat is None:
-            return ht, self._round(ttc - ht), ttc
+            derived_vat = self._round(ttc - ht)
+            if derived_vat < 0:
+                # Une TVA ne peut pas être négative : le « HT » lu est en réalité un sous-total
+                # AVANT remise (facture sans ligne « Total HT » : « Sous-total 131 000 »,
+                # « Remise − 6 000 », « Total à payer 125 000 »). Le net est le TTC lu.
+                if vat_evidence_found:
+                    net = self.ht_from_ttc(ttc)
+                    return net, self._round(ttc - net), ttc
+                return ttc, Decimal("0.00"), ttc
+            return ht, derived_vat, ttc
         if ht is not None and vat is not None and ttc is None:
             return ht, vat, self._round(ht + vat)
         if ttc is not None and vat is not None and ht is None:

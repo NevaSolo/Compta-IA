@@ -110,6 +110,13 @@ CURRENCY_RE = re.compile(r"(?<![A-Za-z])(ariary|mga|ar|eur|usd|gbp|chf)(?![A-Za-
 # ailleurs l'heuristique de position/casse — bug réel corrigé : sur une
 # facture d'avoir, l'en-tête de colonne "VENDEUR" précédait le vrai nom
 # du fournisseur et était retourné à sa place).
+# Étiquettes qui désignent explicitement l'émetteur de la facture (« Vendeur : Boutique X »).
+# Elles doivent porter un « : » : un en-tête de colonne « VENDEUR » (nom en dessous, voisin
+# « CLIENT » à droite) n'est pas une étiquette de valeur.
+SUPPLIER_LABEL_RE = re.compile(
+    r"^\s*(?:vendeur|fournisseur|[ée]metteur|[ée]mise\s+par|seller|supplier|vendor|issued\s+by)"
+    r"\s*[:：]\s*(?P<value>.*)$", re.IGNORECASE)
+
 DOCUMENT_TITLE_PATTERNS = [
     r"^factures?\b", r"\bavoir\b", r"note\s*de\s*cr[ée]dit", r"credit\s*note",
     r"^devis\b", r"^invoice\b", r"^quotation\b",
@@ -532,6 +539,9 @@ class HybridExtractor(EntityExtractor):
         heuristique : premier bloc textuel majuscule significatif du haut de page."""
         if not blocks:
             return None
+        labelled = self._supplier_from_label(blocks)
+        if labelled is not None:
+            return labelled
         max_y = max(_block_center_y(b) for b in blocks)
         top_blocks = [b for b in blocks if _block_center_y(b) < max_y / 3
                       and not _matches_any(b.text.strip(), DOCUMENT_TITLE_PATTERNS)]
@@ -560,6 +570,34 @@ class HybridExtractor(EntityExtractor):
                     confidence=round(block.confidence * 0.6, 4),
                     method=ExtractionMethod.NER,
                     source_block={"bbox": block.bbox, "text": block.text})
+        return None
+
+    @staticmethod
+    def _supplier_from_label(blocks: list[OcrBlock]) -> ExtractedEntity | None:
+        """Valeur placée après une étiquette explicite (« Vendeur : … »), dans le même
+        bloc ou dans le bloc voisin de droite sur la même ligne. C'est le signal le plus
+        fiable : il l'emporte sur l'heuristique de position, qui prenait un sous-titre."""
+        for label in blocks:
+            match = SUPPLIER_LABEL_RE.match(label.text)
+            if not match:
+                continue
+            value, source, confidence = match.group("value").strip(), label, label.confidence
+            if not value:
+                neighbours = [b for b in blocks if b is not label and _same_visual_line(label, b)
+                              and _block_center_x(b) > _block_center_x(label)]
+                neighbours.sort(key=_block_center_x)
+                for other in neighbours:
+                    text = other.text.strip()
+                    if (len(text) >= 3 and sum(c.isalpha() for c in text) >= 2
+                            and not SUPPLIER_LABEL_RE.match(text) and not text.rstrip().endswith(":")
+                            and not _matches_any(text, DOCUMENT_TITLE_PATTERNS)):
+                        value, source, confidence = text, other, min(label.confidence, other.confidence)
+                        break
+            if len(value) >= 3 and sum(c.isalpha() for c in value) >= 2:
+                return ExtractedEntity(
+                    entity_type="SUPPLIER_NAME", raw_value=value, normalized_value=value.upper(),
+                    confidence=round(confidence * 0.9, 4), method=ExtractionMethod.REGEX,
+                    source_block={"bbox": source.bbox, "text": source.text})
         return None
 
     def _get_nlp(self, language: str | None):

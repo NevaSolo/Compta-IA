@@ -9,7 +9,10 @@ from fastapi.responses import Response
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.application.pipeline import ProcessInvoicePipelineUseCase
-from app.application.use_cases import RejectInvoiceUseCase, UploadInvoiceUseCase, UseCaseError
+from app.application.use_cases import (
+    DeleteInvoiceUseCase, InvoiceNotDeletableError, RejectInvoiceUseCase, UploadInvoiceUseCase,
+    UseCaseError,
+)
 from app.core.dependencies import get_current_user
 from app.domain.entities import InvoiceStatus, Role, User
 from app.infrastructure.db.database import get_db
@@ -245,6 +248,25 @@ def set_exchange_rate(invoice_id: int, payload: InvoiceRateUpdate,
     MySQLAuditRepository(db).log(user.id, "INVOICE_RATE_SET", "invoice", invoice_id,
                                  new_value={"currency": invoice.currency, "rate": str(payload.rate)})
     return _to_out(invoice)
+
+
+@router.delete("/{invoice_id}", status_code=204,
+               summary="Supprimer une facture non validée (avec ses écritures proposées)")
+def delete_invoice(invoice_id: int, user: User = Depends(get_current_user),
+                   db: Session = Depends(get_db)):
+    existing = MySQLInvoiceRepository(db).get_by_id(invoice_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail="Facture introuvable")
+    _check_access(existing, user)
+    try:
+        DeleteInvoiceUseCase(
+            MySQLInvoiceRepository(db), MySQLEntryRepository(db), LocalFileStorage(),
+            MySQLAuditRepository(db)).execute(invoice_id, user.id)
+    except InvoiceNotDeletableError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except UseCaseError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    return Response(status_code=204)
 
 
 @router.post("/{invoice_id}/reject", response_model=InvoiceOut,

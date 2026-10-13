@@ -11,6 +11,7 @@ Le suggesteur de comptes est CONTRAINT par la liste `candidates` de la
 règle comptable : le ML n'impute jamais hors du cadre du PCG.
 """
 import logging
+import re
 from pathlib import Path
 
 from app.core.config import get_settings
@@ -142,6 +143,11 @@ def load_active_classifier(db=None) -> OperationClassifier:
     return KeywordClassifier()
 
 
+# « Téléphone : … », « E-mail : … » : étiquettes de coordonnées, jusqu'à la fin de la ligne
+CONTACT_LINE_RE = re.compile(
+    r"\b(?:t[ée]l[ée]phone|t[ée]l|phone|mobile|fax|e-?mail|courriel|site\s*web)\b\s*:[^\n]*")
+
+
 class ConstrainedAccountSuggester(AccountSuggester):
     """Suggère le compte précis PARMI les candidats de la règle :
     1. compte habituel du fournisseur s'il figure dans les candidats (0,90) ;
@@ -162,8 +168,9 @@ class ConstrainedAccountSuggester(AccountSuggester):
             if code and code in candidates:
                 return AccountSuggestion(account_code=code, confidence=0.90,
                                          suggested_by_ml=True)
-        # 2. Mots-clés du libellé
-        lowered = text.lower()
+        # 2. Mots-clés du libellé (hors lignes de contact : « Téléphone : 034… » dans l'en-tête
+        #    du vendeur ne dit rien de la nature de l'achat)
+        lowered = CONTACT_LINE_RE.sub(" ", text.lower())
         best_code, best_hits = None, 0
         for code in candidates:
             hits = sum(1 for kw in self.keywords.get(code, []) if kw in lowered)

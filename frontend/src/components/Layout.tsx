@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link, NavLink, Outlet } from "react-router-dom";
 import {
   FileText, History, LayoutDashboard, LogOut, Settings, UploadCloud, Wallet, type LucideIcon,
@@ -5,6 +6,8 @@ import {
 import { useAuth } from "@/context/AuthContext";
 import { Avatar, CompanyBrand } from "@/components/Avatar";
 import { ChartSetup } from "@/components/ChartSetup";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { useUploadQueue } from "@/context/UploadQueueContext";
 
 interface NavItem { to: string; label: string; short: string; icon: LucideIcon }
 
@@ -29,6 +32,8 @@ function tabClass({ isActive }: { isActive: boolean }): string {
 
 export function Layout() {
   const { user, logout } = useAuth();
+  const { isProcessing } = useUploadQueue();
+  const [confirmingLogout, setConfirmingLogout] = useState(false);
   // Une entreprise sans plan comptable ne peut rien traiter : écran de choix à la place des pages.
   const needsChart = user?.company_id != null && user.company_chart_id == null;
   const navItems: NavItem[] = (user?.role === "ADMIN" || user?.role === "ENTREPRISE_ADMIN")
@@ -70,7 +75,7 @@ export function Layout() {
                 {user?.full_name} <span className="text-slate-400">· {user?.role}</span>
               </span>
             </Link>
-            <button onClick={logout} className="btn-secondary">
+            <button onClick={() => setConfirmingLogout(true)} className="btn-secondary">
               <LogOut size={15} /> Déconnexion
             </button>
           </div>
@@ -82,7 +87,7 @@ export function Layout() {
               <Avatar user={user} />
             </Link>
             <button
-              onClick={logout} aria-label="Déconnexion"
+              onClick={() => setConfirmingLogout(true)} aria-label="Déconnexion"
               className="flex h-11 w-11 items-center justify-center rounded-full text-slate-500 active:bg-slate-100"
             >
               <LogOut size={20} />
@@ -112,6 +117,16 @@ export function Layout() {
           </NavLink>
         ))}
       </nav>
+      <ConfirmDialog
+        open={confirmingLogout} tone="info" title="Se déconnecter ?" confirmLabel="Se déconnecter"
+        cancelLabel="Rester connecté"
+        onCancel={() => setConfirmingLogout(false)}
+        onConfirm={() => { setConfirmingLogout(false); logout(); }}
+      >
+        {isProcessing
+          ? "Des factures sont encore en cours d'envoi : si vous vous déconnectez maintenant, l'envoi sera interrompu."
+          : "Vous devrez saisir à nouveau votre mot de passe pour revenir dans l'application."}
+      </ConfirmDialog>
     </div>
   );
 }

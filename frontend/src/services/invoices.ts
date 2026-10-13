@@ -81,3 +81,8 @@ export async function setInvoiceRate(id: number, rate: string, saveForCompany: b
   });
   return data;
 }
+
+/** Supprime une facture NON validée (fichier, traitement et écritures proposées). */
+export async function deleteInvoice(id: number): Promise<void> {
+  await api.delete(`/invoices/${id}`);
+}

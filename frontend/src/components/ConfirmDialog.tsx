@@ -1,5 +1,5 @@
 import { useEffect, useRef, type ReactNode } from "react";
-import { AlertTriangle, CheckCircle2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, LogOut } from "lucide-react";
 
 interface ConfirmDialogProps {
   open: boolean;
@@ -7,8 +7,8 @@ interface ConfirmDialogProps {
   children: ReactNode;
   confirmLabel?: string;
   cancelLabel?: string;
-  /** « success » pour une action positive (valider), « danger » pour une action destructive. */
-  tone?: "success" | "danger";
+  /** « success » : action positive (valider) ; « danger » : action destructive ; « info » : neutre (se déconnecter). */
+  tone?: "success" | "danger" | "info";
   loading?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
@@ -16,6 +16,7 @@ interface ConfirmDialogProps {
 
 const TONES = {
   success: { icon: CheckCircle2, badge: "bg-emerald-100 text-emerald-700", button: "btn-success" },
+  info: { icon: LogOut, badge: "bg-slate-100 text-slate-600", button: "btn-primary" },
   danger: { icon: AlertTriangle, badge: "bg-red-100 text-red-700", button: "btn bg-red-600 text-white hover:bg-red-700" },
 };
 
@@ -48,18 +49,20 @@ export function ConfirmDialog({
       <div
         role="dialog" aria-modal="true" aria-labelledby="confirm-title"
         onClick={(e) => e.stopPropagation()}
-        className="safe-bottom w-full max-w-md rounded-2xl bg-white p-5 shadow-xl animate-slide-up"
+        className="w-full max-w-xl rounded-2xl bg-white px-6 pt-7 shadow-xl animate-slide-up sm:px-8"
+        // Espace sous les boutons + zone sûre des téléphones (barre de geste) : additionnés, jamais écrasés
+        style={{ paddingBottom: "calc(2.5rem + env(safe-area-inset-bottom))" }}
       >
         <div className="flex items-start gap-3">
-          <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${badge}`}>
+          <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full ${badge}`}>
             <Icon size={20} />
           </span>
           <div className="min-w-0">
-            <h2 id="confirm-title" className="font-semibold text-slate-900">{title}</h2>
-            <div className="mt-1 text-sm text-slate-600">{children}</div>
+            <h2 id="confirm-title" className="text-lg font-semibold text-slate-900">{title}</h2>
+            <div className="mt-1.5 text-base text-slate-600">{children}</div>
           </div>
         </div>
-        <div className="mt-5 grid grid-cols-2 gap-2 sm:flex sm:justify-end">
+        <div className="mt-7 grid grid-cols-2 gap-3 sm:flex sm:justify-end">
           <button ref={cancelRef} type="button" className="btn-secondary" disabled={loading} onClick={onCancel}>
             {cancelLabel}
           </button>

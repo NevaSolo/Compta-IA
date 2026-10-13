@@ -87,3 +87,25 @@ class TestConstrainedAccountSuggester:
         # Le compte habituel du fournisseur (2182) n'est PAS dans les candidats de la règle
         suggestion = suggester.suggest("achat", supplier, candidates=["607"], default="607")
         assert suggestion.account_code == "607"
+
+
+class TestContactLinesAreIgnoredForAccountSuggestion:
+    """« Téléphone : 034 … » dans l'en-tête du vendeur orientait toute facture vers le compte
+    de télécommunications (626), quelle que soit la nature de l'achat."""
+
+    CANDIDATES = ["604", "626"]
+
+    def setup_method(self):
+        self.suggester = ConstrainedAccountSuggester()
+
+    def test_vendor_phone_label_does_not_pick_the_telecom_account(self):
+        text = "Vendeur : Boutique Fil\nTéléphone : 034 12 345 67\nPelote de laine acrylique\nTotal 125 000"
+        assert self.suggester.suggest(text, None, self.CANDIDATES, "604").account_code == "604"
+
+    def test_a_real_telecom_invoice_still_picks_it(self):
+        text = "Abonnement internet et téléphone mobile - forfait mensuel\nTotal 45 000"
+        assert self.suggester.suggest(text, None, self.CANDIDATES, "604").account_code == "626"
+
+    def test_email_and_fax_labels_are_ignored_too(self):
+        text = "E-mail : contact@x.mg\nFax : 020 22 000 00\nPrestation de conseil"
+        assert self.suggester.suggest(text, None, self.CANDIDATES, "604").account_code == "604"

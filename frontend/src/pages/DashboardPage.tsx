@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { formatMoney, formatNumber } from "@/utils/format";
+import { Link } from "react-router-dom";
 import { getDashboardStats } from "@/services/invoices";
 import { InvoiceList } from "@/components/InvoiceList";
 import { PageHeader } from "@/components/PageHeader";
@@ -28,11 +29,13 @@ const OPERATION_COLORS: Record<string, string> = {
   AUTRE: "#94a3b8",
 };
 
+/** Carte d'indicateur : un toucher ouvre l'historique filtré sur ce statut. */
 function StatCard({
-  icon: Icon, label, value, accent, iconClass,
-}: { icon: LucideIcon; label: string; value: string | number; accent?: string; iconClass?: string }) {
+  icon: Icon, label, value, accent, iconClass, to,
+}: { icon: LucideIcon; label: string; value: string | number; accent?: string; iconClass?: string; to: string }) {
   return (
-    <div className="card flex flex-col gap-2 p-4 sm:flex-row sm:items-start sm:gap-3 sm:p-5">
+    <Link to={to} aria-label={`Voir les factures : ${label} (${value})`}
+          className="card flex flex-col gap-2 p-4 transition hover:border-brand-300 hover:shadow-card active:bg-slate-50 sm:flex-row sm:items-start sm:gap-3 sm:p-5">
       <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-100 ${iconClass ?? "text-slate-500"}`}>
         <Icon size={20} strokeWidth={1.75} />
       </span>
@@ -40,7 +43,7 @@ function StatCard({
         <p className="text-sm text-slate-500">{label}</p>
         <p className={`mt-0.5 text-2xl font-bold tabular-nums ${accent ?? "text-slate-900"}`}>{value}</p>
       </div>
-    </div>
+    </Link>
   );
 }
 
@@ -91,12 +94,12 @@ export function DashboardPage() {
       <PageHeader title="Tableau de bord" subtitle="Vue d'ensemble du pipeline OCR → NLP → IA" />
 
       <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
-        <StatCard icon={FileText} label="Factures totales" value={data.total_invoices} />
-        <StatCard icon={Hourglass} label="À vérifier" value={data.pending_review}
+        <StatCard icon={FileText} label="Factures totales" value={data.total_invoices} to="/historique" />
+        <StatCard icon={Hourglass} label="À vérifier" value={data.pending_review} to="/historique?status=ENTRIES_PROPOSED"
                  accent="text-amber-600" iconClass="bg-amber-50 text-amber-600" />
-        <StatCard icon={CheckCircle2} label="Validées" value={data.validated}
+        <StatCard icon={CheckCircle2} label="Validées" value={data.validated} to="/historique?status=VALIDATED"
                  accent="text-emerald-600" iconClass="bg-emerald-50 text-emerald-600" />
-        <StatCard icon={AlertTriangle} label="En erreur" value={data.errors}
+        <StatCard icon={AlertTriangle} label="En erreur" value={data.errors} to="/historique?status=ERROR"
                  accent="text-red-600" iconClass="bg-red-50 text-red-600" />
       </div>
 

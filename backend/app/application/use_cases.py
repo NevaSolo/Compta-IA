@@ -166,6 +166,38 @@ class ValidateEntryUseCase:
         return updated
 
 
+class InvoiceNotDeletableError(UseCaseError):
+    """La facture a une écriture validée : elle fait partie de la comptabilité."""
+
+
+class DeleteInvoiceUseCase:
+    """Supprime une facture qui n'a PAS été validée, avec son fichier, ses résultats de
+    traitement et ses écritures proposées. Une facture validée est protégée (intangibilité
+    des enregistrements comptables) : aucune suppression, quel que soit le rôle."""
+
+    def __init__(self, invoices: InvoiceRepository, entries: EntryRepository,
+                 storage: FileStorage, audit: AuditRepository):
+        self.invoices = invoices
+        self.entries = entries
+        self.storage = storage
+        self.audit = audit
+
+    def execute(self, invoice_id: int, user_id: int) -> None:
+        invoice = self.invoices.get_by_id(invoice_id)
+        if invoice is None:
+            raise UseCaseError("Facture introuvable")
+        if invoice.status == InvoiceStatus.VALIDATED or self.entries.has_validated_for_invoice(invoice_id):
+            raise InvoiceNotDeletableError(
+                "Cette facture est validée : elle fait partie de la comptabilité et ne peut pas être supprimée.")
+        deleted_entries = self.entries.delete_unvalidated_by_invoice(invoice_id)
+        self.invoices.delete(invoice_id)
+        self.storage.delete(invoice.storage_path)
+        self.audit.log(user_id, "INVOICE_DELETED", "invoice", invoice_id,
+                       old_value={"filename": invoice.original_filename, "status": invoice.status.value,
+                                  "invoice_number": invoice.invoice_number,
+                                  "entries_deleted": deleted_entries})
+
+
 class RejectInvoiceUseCase:
     def __init__(self, invoices: InvoiceRepository, audit: AuditRepository):
         self.invoices = invoices

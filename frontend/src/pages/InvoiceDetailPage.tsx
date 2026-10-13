@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   getEntities, getEntriesOfInvoice, getInvoice, getOcrResult,
-  rejectInvoice, reprocessInvoice,
+  deleteInvoice, rejectInvoice, reprocessInvoice,
 } from "@/services/invoices";
 import { correctEntry, validateEntry, type LineCorrection } from "@/services/entries";
 import { listAccounts } from "@/services/accounts";
-import { FileSearch } from "lucide-react";
+import { FileSearch, Trash2 } from "lucide-react";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { StatusBadge } from "@/components/StatusBadge";
 import { ConfidenceBadge } from "@/components/ConfidenceBadge";
 import { ExchangeRateBox } from "@/components/ExchangeRateBox";
@@ -34,6 +35,8 @@ export function InvoiceDetailPage() {
   const { user } = useAuth();
   const [rejectReason, setRejectReason] = useState("");
   const [showReject, setShowReject] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const navigate = useNavigate();
 
   const invoiceQuery = useQuery({
     queryKey: ["invoice", invoiceId],
@@ -84,6 +87,18 @@ export function InvoiceDetailPage() {
       queryClient.invalidateQueries({ queryKey: ["invoice", invoiceId] });
     },
     onError: (err) => notify("error", apiErrorMessage(err)),
+  });
+  const deleteMutation = useMutation({
+    mutationFn: () => deleteInvoice(invoiceId),
+    onSuccess: () => {
+      notify("success", "Facture supprimée.");
+      for (const key of ["invoices", "entries", "dashboard"]) {
+        queryClient.invalidateQueries({ queryKey: [key] });
+      }
+      queryClient.removeQueries({ queryKey: ["invoice", invoiceId] });
+      navigate("/historique", { replace: true });
+    },
+    onError: (err) => { setConfirmingDelete(false); notify("error", apiErrorMessage(err)); },
   });
   const reprocessMutation = useMutation({
     mutationFn: () => reprocessInvoice(invoiceId),
@@ -142,8 +157,29 @@ export function InvoiceDetailPage() {
             onClick={() => setShowReject((v) => !v)}
             className="btn-danger"
           >Rejeter</button>
+          {invoice.status !== "VALIDATED" && (
+            <button
+              onClick={() => setConfirmingDelete(true)}
+              className="btn-danger col-span-2 sm:col-auto"
+            ><Trash2 size={15} /> Supprimer</button>
+          )}
         </div>
       </div>
+
+      <ConfirmDialog
+        open={confirmingDelete} tone="danger" loading={deleteMutation.isPending}
+        title="Supprimer cette facture ?" confirmLabel="Supprimer définitivement"
+        onCancel={() => setConfirmingDelete(false)} onConfirm={() => deleteMutation.mutate()}
+      >
+        <p className="break-all font-medium text-slate-800">{invoice.original_filename}</p>
+        <p className="mt-2">
+          Le fichier, les données extraites et les écritures proposées seront effacés. Cette action est
+          irréversible.
+        </p>
+        <p className="mt-2 text-xs text-slate-500">
+          Seule une facture non validée peut être supprimée : une facture validée fait partie de la comptabilité.
+        </p>
+      </ConfirmDialog>
 
       {showReject && (
         <div className="flex flex-col gap-2 rounded-md border border-red-200 bg-red-50 p-3 sm:flex-row">

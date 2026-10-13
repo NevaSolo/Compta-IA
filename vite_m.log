@@ -1,0 +1,35 @@
+
+  VITE v6.4.4  ready in 767 ms
+
+  ➜  Local:   http://127.0.0.1:5173/
+  ➜  press h + enter to show help
+16:15:54 [vite] (client) hmr update /src/index.css
+16:15:54 [vite] (client) hmr update /src/pages/DashboardPage.tsx, /src/index.css
+16:16:02 [vite] (client) hmr update /src/pages/DashboardPage.tsx, /src/index.css
+19:17:23 [vite] (client) hmr update /src/pages/EntriesPage.tsx, /src/index.css
+19:35:09 [vite] (client) page reload src/types/index.ts
+19:35:09 [vite] (client) hmr update /src/index.css, /src/pages/ProfilePage.tsx, /src/pages/AdminPage.tsx, /src/components/Avatar.tsx
+19:35:09 [vite] (client) hmr update /src/pages/ProfilePage.tsx, /src/index.css
+19:35:09 [vite] (client) hmr update /src/index.css, /src/context/UploadQueueContext.tsx, /src/context/PipelineProgressContext.tsx, /src/pages/HistoryPage.tsx, /src/pages/DashboardPage.tsx, /src/pages/InvoiceDetailPage.tsx
+19:35:09 [vite] (client) hmr update /src/pages/EntriesPage.tsx, /src/index.css
+19:35:56 [vite] (client) hmr update /src/pages/InvoiceDetailPage.tsx, /src/index.css
+19:36:10 [vite] (client) hmr update /src/pages/InvoiceDetailPage.tsx, /src/index.css
+19:36:10 [vite] (client) hmr update /src/pages/EntriesPage.tsx, /src/index.css
+19:40:36 [vite] (client) hmr update /src/components/CurrencySettings.tsx, /src/index.css
+19:41:05 [vite] (client) hmr update /src/pages/InvoiceDetailPage.tsx, /src/index.css
+19:41:05 [vite] (client) hmr update /src/components/ExchangeRateBox.tsx, /src/index.css
+20:00:07 [vite] (client) hmr update /src/pages/EntriesPage.tsx, /src/index.css, /src/components/ExchangeRateBox.tsx, /src/components/CurrencySettings.tsx
+20:00:07 [vite] (client) hmr update /src/components/InvoiceList.tsx, /src/index.css
+20:00:07 [vite] (client) hmr update /src/components/ExchangeRateBox.tsx, /src/index.css
+20:00:07 [vite] (client) hmr update /src/pages/EntriesPage.tsx, /src/index.css
+20:00:07 [vite] (client) hmr update /src/pages/InvoiceDetailPage.tsx, /src/index.css
+20:00:07 [vite] (client) hmr update /src/pages/DashboardPage.tsx, /src/index.css
+20:00:34 [vite] (client) hmr update /src/pages/DashboardPage.tsx, /src/index.css
+20:42:56 [vite] (client) page reload src/types/index.ts
+20:42:56 [vite] (client) hmr update /src/index.css, /src/pages/InvoiceDetailPage.tsx
+20:42:56 [vite] (client) hmr update /src/pages/InvoiceDetailPage.tsx, /src/index.css
+20:42:56 [vite] (client) hmr update /src/pages/ProfilePage.tsx, /src/index.css
+20:42:56 [vite] (client) hmr update /src/components/Layout.tsx, /src/index.css
+20:51:01 [vite] (client) hmr update /src/components/Layout.tsx, /src/index.css
+22:31:27 [vite] (client) hmr update /src/components/CurrencySettings.tsx, /src/index.css
+22:36:11 [vite] (client) hmr update /src/pages/InvoiceDetailPage.tsx, /src/index.css

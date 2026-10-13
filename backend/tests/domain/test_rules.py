@@ -115,3 +115,32 @@ class TestVATCalculator:
 
     def test_resolve_all_none_returns_none(self):
         assert self.calc.resolve_missing(None, None, None) is None
+
+
+class TestSubtotalBeforeDiscount:
+    """Facture sans ligne « Total HT » : « Sous-total 131 000 », « Remise − 6 000 »,
+    « Total à payer 125 000 ». Le sous-total lu comme HT donnait une TVA de −6 000
+    (écriture refusée : « Montant VAT négatif »)."""
+
+    def setup_method(self):
+        self.calc = VATCalculator(Decimal("0.20"))
+
+    def test_no_vat_mention_net_is_the_amount_to_pay(self):
+        assert self.calc.resolve_missing(Decimal("131000"), None, Decimal("125000"),
+                                         vat_evidence_found=False) == (
+            Decimal("125000"), Decimal("0.00"), Decimal("125000"))
+
+    def test_vat_mentioned_without_amount_rebuilds_ht_from_the_net(self):
+        ht, vat, ttc = self.calc.resolve_missing(Decimal("131000"), None, Decimal("120000"),
+                                                 vat_evidence_found=True)
+        assert (ht, vat, ttc) == (Decimal("100000.00"), Decimal("20000.00"), Decimal("120000"))
+
+    def test_a_vat_is_never_negative(self):
+        for evidence in (True, False):
+            _, vat, _ = self.calc.resolve_missing(Decimal("500"), None, Decimal("400"),
+                                                  vat_evidence_found=evidence)
+            assert vat >= 0
+
+    def test_regular_vat_derivation_is_unchanged(self):
+        assert self.calc.resolve_missing(Decimal("100"), None, Decimal("120")) == (
+            Decimal("100"), Decimal("20.00"), Decimal("120"))

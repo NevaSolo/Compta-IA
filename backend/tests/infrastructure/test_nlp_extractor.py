@@ -309,3 +309,43 @@ class TestCurrencyDetection:
     def test_currency_written_next_to_the_totals_wins_over_a_footer_symbol(self):
         assert self._currency(block("Capital social 50 000 €", x=20, y=20, w=200),
                               block("Total TTC", x=400, y=100), block("120 000 Ar", x=600, y=100)) == "MGA"
+
+
+class TestSupplierFromExplicitLabel:
+    """« Vendeur : Boutique … » est le signal le plus fiable : il l'emporte sur l'heuristique
+    de position, qui prenait le sous-titre du document (bug réel sur une facture d'achat)."""
+
+    def setup_method(self):
+        self.extractor = HybridExtractor(use_spacy=False)
+
+    def _supplier(self, *blocks):
+        ocr = OcrResult(engine="PDF_TEXT", raw_text="", mean_confidence=0.99, blocks=list(blocks))
+        found = {e.entity_type: e for e in self.extractor.extract(ocr, "fr")}.get("SUPPLIER_NAME")
+        return found.raw_value if found else None
+
+    def test_value_to_the_right_of_the_label(self):
+        assert self._supplier(
+            block("FACTURE D'ACHAT", x=200, y=40, w=160),
+            block("Pelotes de laine et fils à tricoter — Montants en ariary malgaches (Ar)", x=150, y=70, w=380),
+            block("Vendeur :", x=70, y=136), block("Boutique Fil & Création (fictif)", x=145, y=136, w=170),
+            block("Téléphone :", x=335, y=136), block("034 12 345 67", x=398, y=136),
+            block("Acheteur :", x=70, y=162), block("Client(e) — exemple", x=145, y=162, w=150),
+        ) == "Boutique Fil & Création (fictif)"
+
+    def test_value_in_the_same_block_as_the_label(self):
+        assert self._supplier(block("Sous-titre du document sans importance", x=40, y=40, w=300),
+                              block("Fournisseur : Société Rakoto SARL", x=40, y=80, w=250)) == "Société Rakoto SARL"
+
+    def test_column_header_without_colon_is_not_a_label(self):
+        # Facture d'avoir : en-têtes « VENDEUR » | « CLIENT » sur la même ligne, noms en dessous.
+        assert self._supplier(
+            block("FACTURE D'AVOIR", x=200, y=40, w=160),
+            block("VENDEUR", x=60, y=100), block("CLIENT", x=330, y=100),
+            block("TECHNOLOGIA SARL", x=60, y=130, w=150), block("MADA SERVICES", x=330, y=130, w=130),
+        ) != "CLIENT"
+
+    def test_label_followed_by_another_label_is_ignored(self):
+        # (blocs dans l'ordre de lecture, du haut vers le bas, comme le produit l'OCR)
+        assert self._supplier(block("ACME INDUSTRIES", x=60, y=40, w=150),
+                              block("Vendeur :", x=70, y=100), block("Téléphone :", x=200, y=100),
+                              block("Merci de votre confiance", x=60, y=900, w=200)) == "ACME INDUSTRIES"

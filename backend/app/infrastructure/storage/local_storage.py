@@ -23,3 +23,11 @@ class LocalFileStorage(FileStorage):
 
     def read(self, path: str) -> bytes:
         return Path(path).read_bytes()
+
+    def delete(self, path: str) -> None:
+        """Supprime un fichier du stockage ; ignore un fichier déjà absent et refuse tout
+        chemin situé hors du dossier de stockage (jamais de suppression arbitraire)."""
+        target = Path(path).resolve()
+        if self.base_dir.resolve() not in target.parents:
+            return
+        target.unlink(missing_ok=True)

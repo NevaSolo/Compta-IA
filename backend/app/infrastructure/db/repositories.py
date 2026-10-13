@@ -448,6 +448,15 @@ class MySQLInvoiceRepository(ports.InvoiceRepository):
             self.db.execute(delete(model).where(model.invoice_id == invoice_id))
         self.db.commit()
 
+    def delete(self, invoice_id: int) -> None:
+        """Supprime la facture et ses résultats de traitement (OCR, entités, classification).
+        Les écritures doivent avoir été supprimées avant (clé étrangère protégée)."""
+        self.reset_pipeline_results(invoice_id)
+        row = self.db.get(m.InvoiceModel, invoice_id)
+        if row is not None:
+            self.db.delete(row)
+            self.db.commit()
+
     def save_ocr_result(self, invoice_id, engine, raw_text, mean_confidence, blocks, duration_ms):
         self.db.add(m.OcrResultModel(invoice_id=invoice_id, engine=engine,
                                      raw_text=raw_text, mean_confidence=mean_confidence,
@@ -579,6 +588,11 @@ class MySQLEntryRepository(ports.EntryRepository):
             self.db.delete(row)
         self.db.commit()
         return len(rows)
+
+    def has_validated_for_invoice(self, invoice_id: int) -> bool:
+        return (self.db.scalar(select(func.count()).select_from(m.JournalEntryModel).where(
+            m.JournalEntryModel.invoice_id == invoice_id,
+            m.JournalEntryModel.status == "VALIDATED")) or 0) > 0
 
     def count_for_company(self, company_id: int) -> int:
         return self.db.scalar(select(func.count()).select_from(m.JournalEntryModel).where(
