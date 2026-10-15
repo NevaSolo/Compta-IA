@@ -33,3 +33,17 @@
 20:51:01 [vite] (client) hmr update /src/components/Layout.tsx, /src/index.css
 22:31:27 [vite] (client) hmr update /src/components/CurrencySettings.tsx, /src/index.css
 22:36:11 [vite] (client) hmr update /src/pages/InvoiceDetailPage.tsx, /src/index.css
+17:52:51 [vite] (client) hmr update /src/index.css, /src/context/UploadQueueContext.tsx, /src/context/PipelineProgressContext.tsx, /src/pages/HistoryPage.tsx, /src/pages/DashboardPage.tsx, /src/pages/InvoiceDetailPage.tsx, /src/components/ExchangeRateBox.tsx
+17:52:51 [vite] (client) hmr update /src/components/ConfirmDialog.tsx, /src/index.css
+17:52:51 [vite] (client) hmr update /src/pages/InvoiceDetailPage.tsx, /src/index.css
+17:52:51 [vite] (client) hmr update /src/components/Layout.tsx, /src/index.css
+17:52:51 [vite] (client) hmr update /src/pages/DashboardPage.tsx, /src/index.css
+17:52:51 [vite] (client) hmr update /src/pages/HistoryPage.tsx, /src/index.css
+17:52:52 [vite] (client) hmr invalidate /src/context/UploadQueueContext.tsx Could not Fast Refresh ("useUploadQueue" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+17:52:52 [vite] (client) hmr update /src/App.tsx, /src/index.css, /src/pages/UploadPage.tsx
+17:52:52 [vite] (client) hmr invalidate /src/context/PipelineProgressContext.tsx Could not Fast Refresh ("usePipelineProgress" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+17:52:52 [vite] (client) hmr update /src/App.tsx, /src/index.css, /src/context/UploadQueueContext.tsx, /src/pages/InvoiceDetailPage.tsx, /src/components/ExchangeRateBox.tsx
+17:52:52 [vite] (client) hmr invalidate /src/context/UploadQueueContext.tsx Could not Fast Refresh ("useUploadQueue" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+17:52:52 [vite] (client) hmr update /src/App.tsx, /src/index.css, /src/pages/UploadPage.tsx
+18:04:40 [vite] (client) hmr update /src/components/ConfirmDialog.tsx, /src/index.css
+18:05:13 [vite] (client) hmr update /src/components/ConfirmDialog.tsx, /src/index.css

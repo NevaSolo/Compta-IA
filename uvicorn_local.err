@@ -1,0 +1,11 @@
+INFO:     Started server process [18900]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:9000 (Press CTRL+C to quit)
+2026-10-13 17:53:55,863 WARNING app.infrastructure.nlp.extractor — Modèle spaCy fr_core_news_md absent : NER désactivé (python -m spacy download fr_core_news_md)
+2026-10-13 17:57:13,853 WARNING app.infrastructure.nlp.extractor — Modèle spaCy fr_core_news_md absent : NER désactivé (python -m spacy download fr_core_news_md)
+2026-10-13 18:01:51,420 WARNING app.infrastructure.nlp.extractor — Modèle spaCy fr_core_news_md absent : NER désactivé (python -m spacy download fr_core_news_md)
+2026-10-13 18:01:51,519 INFO app.application.pipeline — Facture 68 : écriture proposée (confiance 0.77)
+2026-10-13 18:07:21,815 WARNING app.infrastructure.nlp.extractor — Modèle spaCy fr_core_news_md absent : NER désactivé (python -m spacy download fr_core_news_md)
+2026-10-13 18:07:34,925 WARNING app.infrastructure.nlp.extractor — Modèle spaCy fr_core_news_md absent : NER désactivé (python -m spacy download fr_core_news_md)
+2026-10-13 18:09:27,206 WARNING app.infrastructure.nlp.extractor — Modèle spaCy fr_core_news_md absent : NER désactivé (python -m spacy download fr_core_news_md)
