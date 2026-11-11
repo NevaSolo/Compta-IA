@@ -1,0 +1,78 @@
+@startuml cas_utilisation
+title Diagramme de cas d'utilisation global - Système intelligent de génération des écritures comptables
+left to right direction
+skinparam packageStyle rectangle
+skinparam actorStyle default
+
+actor "Utilisateur" as U
+actor "Comptable" as C
+actor "Administrateur" as A
+
+' Généralisation : le Comptable et l'Administrateur héritent des cas de l'Utilisateur
+U <|-- C
+U <|-- A
+
+rectangle "Système intelligent de génération des écritures comptables" {
+  usecase "S'authentifier" as UC_AUTH
+  usecase "Se déconnecter" as UC_LOGOUT
+  usecase "Importer une facture" as UC_IMPORT
+  usecase "Consulter une facture" as UC_CONSULT
+  usecase "Supprimer une facture" as UC_SUPPR
+  usecase "Lancer le traitement\nautomatique" as UC_LANCER
+  usecase "Prétraiter la facture" as UC_PRETR
+  usecase "Extraire les informations\npar OCR" as UC_OCR
+  usecase "Analyser le contenu\npar NLP" as UC_NLP
+  usecase "Identifier la nature\nde l'opération" as UC_NATURE
+  usecase "Proposer les comptes\ncomptables" as UC_COMPTES
+  usecase "Calculer le score\nde confiance" as UC_SCORE
+  usecase "Générer l'écriture\ncomptable" as UC_GEN
+  usecase "Appliquer les règles\ncomptables" as UC_REGLES
+  usecase "Vérifier l'équilibre\nDébit = Crédit" as UC_EQUIL
+  usecase "Consulter la proposition" as UC_PROP
+  usecase "Modifier l'écriture" as UC_MODIF
+  usecase "Valider l'écriture" as UC_VALID
+  usecase "Rejeter l'écriture" as UC_REJET
+  usecase "Consulter l'historique" as UC_HIST
+  usecase "Gérer les utilisateurs" as UC_USERS
+  usecase "Gérer les rôles" as UC_ROLES
+  usecase "Réentraîner le modèle" as UC_RETRAIN
+}
+
+' Utilisateur (hérité par Comptable et Administrateur)
+U --> UC_AUTH
+U --> UC_LOGOUT
+U --> UC_IMPORT
+U --> UC_CONSULT
+U --> UC_LANCER
+
+' Comptable
+C --> UC_PROP
+C --> UC_MODIF
+C --> UC_VALID
+C --> UC_REJET
+C --> UC_HIST
+
+' Administrateur
+A --> UC_USERS
+A --> UC_ROLES
+A --> UC_HIST
+A --> UC_RETRAIN
+
+' Inclusions
+UC_LANCER ..> UC_PRETR : <<include>>
+UC_LANCER ..> UC_OCR : <<include>>
+UC_LANCER ..> UC_NLP : <<include>>
+UC_LANCER ..> UC_NATURE : <<include>>
+UC_LANCER ..> UC_COMPTES : <<include>>
+UC_LANCER ..> UC_SCORE : <<include>>
+UC_LANCER ..> UC_GEN : <<include>>
+UC_GEN ..> UC_REGLES : <<include>>
+UC_GEN ..> UC_EQUIL : <<include>>
+UC_PROP ..> UC_SCORE : <<include>>
+
+' Extensions
+UC_SUPPR ..> UC_CONSULT : <<extend>>
+UC_MODIF ..> UC_PROP : <<extend>>
+UC_VALID ..> UC_PROP : <<extend>>
+UC_REJET ..> UC_PROP : <<extend>>
+@enduml

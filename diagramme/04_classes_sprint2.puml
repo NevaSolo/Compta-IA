@@ -1,0 +1,89 @@
+@startuml classes_sprint2
+title Diagramme de classes de conception - Sprint 2 : gestion des factures
+skinparam classAttributeIconSize 0
+
+class Entreprise {
+  -idEntreprise : int
+  -nom : String
+  -devise : String
+  +choisirPlan(p : PlanComptable) : void
+}
+class PlanComptable {
+  -idPlan : int
+  -nom : String
+  -pays : String
+}
+class Utilisateur {
+  -idUtilisateur : int
+  -nom : String
+  -email : String
+}
+class Facture {
+  -idFacture : int
+  -numeroFacture : String
+  -dateFacture : Date
+  -typeFacture : String
+  -devise : String
+  -montantHT : Decimal
+  -montantTVA : Decimal
+  -montantTTC : Decimal
+  -statut : String
+  +importer(fichier : Document) : void
+  +consulter() : Facture
+  +supprimer() : void
+}
+class Document {
+  -idDocument : int
+  -nomFichier : String
+  -typeFichier : String
+  -taille : int
+  -chemin : String
+  +verifierFormat() : Boolean
+  +enregistrer() : void
+}
+class Fournisseur {
+  -idFournisseur : int
+  -raisonSociale : String
+  -adresse : String
+  -nif : String
+  -stat : String
+}
+class Client {
+  -idClient : int
+  -raisonSociale : String
+  -adresse : String
+  -nif : String
+}
+class TauxChange {
+  -idTaux : int
+  -devise : String
+  -taux : Decimal
+  -dateEffet : Date
+  +convertir(montant : Decimal) : Decimal
+}
+class GestionFacture {
+  +importerFacture(fichier : Document) : Facture
+  +consulterFacture(id : int) : Facture
+  +supprimerFacture(id : int) : void
+  +rechercherFacture(critere : String) : List
+}
+
+note right of Document
+  RG1 : PDF, JPEG ou PNG,
+  15 Mo au maximum
+end note
+note bottom of GestionFacture
+  RG11 : seule une facture dont
+  l'écriture n'est pas validée
+  peut être supprimée
+end note
+
+Entreprise "0..*" -- "1" PlanComptable : choisit >
+Entreprise "1" -- "0..*" Facture : possède >
+Utilisateur "1" -- "0..*" Facture : importe >
+Facture "1" *-- "1" Document : est stockée dans >
+Facture "0..*" -- "1" Fournisseur : émise par >
+Facture "0..*" -- "0..1" Client : adressée à >
+Facture "0..*" -- "0..1" TauxChange : convertie selon >
+GestionFacture "1" --> "0..*" Facture : gère >
+@enduml

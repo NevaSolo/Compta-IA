@@ -1,0 +1,52 @@
+@startuml classes_sprint1
+title Diagramme de classes de conception - Sprint 1 : authentification et gestion des utilisateurs
+skinparam classAttributeIconSize 0
+
+class Entreprise {
+  -idEntreprise : int
+  -nom : String
+  -nif : String
+  -stat : String
+  -devise : String
+}
+class Utilisateur {
+  -idUtilisateur : int
+  -nom : String
+  -email : String
+  -motDePasse : String
+  -actif : Boolean
+  +sAuthentifier() : Boolean
+  +seDeconnecter() : void
+}
+class Comptable
+class Administrateur
+class Role {
+  -idRole : int
+  -nom : String
+  -description : String
+  +attribuer(u : Utilisateur) : void
+}
+class GestionUtilisateur {
+  +ajouterUtilisateur(u : Utilisateur) : void
+  +modifierUtilisateur(u : Utilisateur) : void
+  +desactiverUtilisateur(id : int) : void
+  +consulterUtilisateur(id : int) : Utilisateur
+}
+class Authentification {
+  +authentifier(email : String, motDePasse : String) : String
+  +creerSession(u : Utilisateur) : String
+  +fermerSession(jeton : String) : void
+}
+class Autorisation {
+  +verifierDroit(u : Utilisateur, action : String) : Boolean
+}
+
+Utilisateur <|-- Comptable
+Utilisateur <|-- Administrateur
+Entreprise "1" -- "1..*" Utilisateur : emploie >
+Utilisateur "0..*" -- "1" Role : possède >
+Administrateur ..> GestionUtilisateur : utilise
+GestionUtilisateur "1" --> "0..*" Utilisateur : gère >
+Utilisateur ..> Authentification : utilise
+Authentification ..> Autorisation : vérifie
+@enduml

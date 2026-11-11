@@ -1,0 +1,58 @@
+@startuml classes_sprint3
+title Diagramme de classes de conception - Sprint 3 : prétraitement et OCR
+skinparam classAttributeIconSize 0
+
+class Facture {
+  -idFacture : int
+  -numeroFacture : String
+  -dateFacture : Date
+  -statut : String
+}
+class Document {
+  -idDocument : int
+  -nomFichier : String
+  -typeFichier : String
+  -chemin : String
+}
+class TraitementAutomatique {
+  -etapeCourante : String
+  -dateDebut : DateTime
+  +lancer(f : Facture) : void
+  +verifierDocument() : Boolean
+}
+class Pretraitement {
+  -resolution : int
+  -netteteMesuree : Decimal
+  +convertirEnNiveauxDeGris() : void
+  +redresser() : void
+  +debruiter() : void
+  +binariser() : void
+}
+class TraitementOCR {
+  -idOCR : int
+  -moteur : String
+  -texteExtrait : Text
+  -scoreConfiance : Decimal
+  -dateTraitement : DateTime
+  +extraireTexte() : String
+  +basculerMoteurSecours() : void
+}
+class InformationExtraite {
+  -idInformation : int
+  -typeInformation : String
+  -valeur : String
+  -scoreConfiance : Decimal
+}
+
+note right of TraitementOCR
+  RG4 : confiance < 0,55 -> moteur de secours
+  (Tesseract) ; < 0,40 -> facture illisible
+end note
+
+Facture "1" *-- "1" Document : est stockée dans >
+TraitementAutomatique "0..*" -- "1" Facture : traite >
+TraitementAutomatique "1" *-- "1" Pretraitement : étape 1 >
+TraitementAutomatique "1" *-- "1" TraitementOCR : étape 2 >
+Facture "1" -- "1" TraitementOCR : subit >
+TraitementOCR "1" *-- "1..*" InformationExtraite : produit >
+@enduml

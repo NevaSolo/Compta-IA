@@ -1,0 +1,74 @@
+@startuml classes_sprint6
+title Diagramme de classes de conception - Sprint 6 : validation, correction et historique
+skinparam classAttributeIconSize 0
+
+class Utilisateur {
+  -idUtilisateur : int
+  -nom : String
+  -email : String
+}
+class Comptable
+class EcritureComptable {
+  -idEcriture : int
+  -dateEcriture : Date
+  -totalDebit : Decimal
+  -totalCredit : Decimal
+  -statut : String
+  +consulter() : EcritureComptable
+  +modifier() : void
+  +valider() : void
+  +rejeter() : void
+}
+class LigneEcriture {
+  -idLigne : int
+  -libelle : String
+  -montantDebit : Decimal
+  -montantCredit : Decimal
+}
+class Validation {
+  -idValidation : int
+  -decision : String
+  -commentaire : String
+  -dateValidation : DateTime
+  -validePar : int
+  +valider() : void
+  +rejeter() : void
+}
+class Correction {
+  -idCorrection : int
+  -champ : String
+  -ancienneValeur : String
+  -nouvelleValeur : String
+  -dateCorrection : DateTime
+  -auteur : int
+  +enregistrer() : void
+}
+class Historique {
+  -idHistorique : int
+  -action : String
+  -description : String
+  -dateAction : DateTime
+  -auteur : int
+  +enregistrer(action : String) : void
+  +consulter() : List
+}
+class Facture {
+  -idFacture : int
+  -statut : String
+}
+
+note bottom of Historique
+  RG14 : l'historique n'est
+  ni modifiable ni supprimable
+end note
+
+Utilisateur <|-- Comptable
+Comptable ..> EcritureComptable : contrôle
+EcritureComptable "1" *-- "2..*" LigneEcriture : contient >
+EcritureComptable "1" -- "0..1" Validation : fait l'objet de >
+EcritureComptable "1" -- "0..*" Correction : peut subir >
+Facture "1" -- "0..1" EcritureComptable : donne lieu à >
+Facture "1" -- "0..*" Historique : trace >
+Validation ..> Historique : enregistre
+Correction ..> Historique : enregistre
+@enduml

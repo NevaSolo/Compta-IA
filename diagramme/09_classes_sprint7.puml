@@ -1,0 +1,193 @@
+@startuml classes_sprint7
+title Diagramme de classes de conception - Sprint 7 : intégration
+skinparam classAttributeIconSize 0
+
+class Utilisateur {
+  -idUtilisateur : int
+  -nom : String
+  -email : String
+  -motDePasse : String
+  -actif : Boolean
+  +sAuthentifier() : Boolean
+  +seDeconnecter() : void
+}
+class Role {
+  -idRole : int
+  -nom : String
+  -description : String
+  +attribuer(u : Utilisateur) : void
+}
+class Facture {
+  -idFacture : int
+  -numeroFacture : String
+  -dateFacture : Date
+  -typeFacture : String
+  -devise : String
+  -montantHT : Decimal
+  -montantTVA : Decimal
+  -montantTTC : Decimal
+  -statut : String
+  +importer(fichier : Document) : void
+  +consulter() : Facture
+  +supprimer() : void
+}
+class Document {
+  -idDocument : int
+  -nomFichier : String
+  -typeFichier : String
+  -taille : int
+  -chemin : String
+  +verifierFormat() : Boolean
+}
+class Fournisseur {
+  -idFournisseur : int
+  -raisonSociale : String
+  -adresse : String
+  -nif : String
+  -stat : String
+}
+class Client {
+  -idClient : int
+  -raisonSociale : String
+  -adresse : String
+  -nif : String
+}
+class TraitementAutomatique {
+  -etapeCourante : String
+  -dateDebut : DateTime
+  +lancer(f : Facture) : void
+  +reprendre() : void
+}
+class Pretraitement {
+  -resolution : int
+  -netteteMesuree : Decimal
+  +redresser() : void
+  +debruiter() : void
+  +binariser() : void
+}
+class TraitementOCR {
+  -idOCR : int
+  -moteur : String
+  -texteExtrait : Text
+  -scoreConfiance : Decimal
+  -dureeMs : int
+  +extraireTexte() : String
+  +basculerMoteurSecours() : void
+}
+class InformationExtraite {
+  -idInformation : int
+  -typeInformation : String
+  -valeur : String
+  -scoreConfiance : Decimal
+}
+class AnalyseNLP {
+  -langue : String
+  +detecterLangue() : String
+  +extraireEntites() : List
+  +identifierFournisseur() : String
+}
+class Analyse {
+  -idAnalyse : int
+  -natureOperation : String
+  -scoreConfiance : Decimal
+  +classerOperation() : String
+}
+class ModeleIA {
+  -idModele : int
+  -version : String
+  -algorithme : String
+  -f1Score : Decimal
+  -actif : Boolean
+  +predire(texte : String) : PredictionCompte
+  +entrainer() : void
+  +evaluer() : Decimal
+}
+class PredictionCompte {
+  -idPrediction : int
+  -numeroComptePropose : String
+  -scoreConfiance : Decimal
+}
+class MoteurComptable {
+  +appliquerRegles(a : Analyse) : void
+  +genererEcriture() : EcritureComptable
+  +verifierEquilibre() : Boolean
+}
+class RegleComptable {
+  -idRegle : int
+  -natureOperation : String
+  -comptesCandidats : List
+  -condition : String
+  +verifier(compte : String) : Boolean
+}
+class EcritureComptable {
+  -idEcriture : int
+  -dateEcriture : Date
+  -statut : String
+  -totalDebit : Decimal
+  -totalCredit : Decimal
+  -scoreConfiance : Decimal
+  +ajouterLigne(l : LigneEcriture) : void
+  +calculerScore() : Decimal
+  +valider() : void
+}
+class LigneEcriture {
+  -idLigne : int
+  -libelle : String
+  -montantDebit : Decimal
+  -montantCredit : Decimal
+}
+class CompteComptable {
+  -numeroCompte : String
+  -libelle : String
+  -classe : int
+}
+class Validation {
+  -idValidation : int
+  -decision : String
+  -commentaire : String
+  -dateValidation : DateTime
+  +valider() : void
+  +rejeter() : void
+}
+class Correction {
+  -idCorrection : int
+  -champ : String
+  -ancienneValeur : String
+  -nouvelleValeur : String
+  -dateCorrection : DateTime
+  +enregistrer() : void
+}
+class Historique {
+  -idHistorique : int
+  -action : String
+  -description : String
+  -dateAction : DateTime
+  +enregistrer(action : String) : void
+}
+
+Utilisateur "0..*" -- "1" Role : possède >
+Utilisateur "1" -- "0..*" Facture : importe >
+Facture "1" *-- "1" Document : est stockée dans >
+Facture "0..*" -- "1" Fournisseur : émise par >
+Facture "0..*" -- "0..1" Client : adressée à >
+TraitementAutomatique "0..*" -- "1" Facture : traite >
+TraitementAutomatique "1" *-- "1" Pretraitement : étape 1 >
+TraitementAutomatique "1" *-- "1" TraitementOCR : étape 2 >
+TraitementAutomatique "1" *-- "1" AnalyseNLP : étape 3 >
+TraitementOCR "1" *-- "1..*" InformationExtraite : produit >
+AnalyseNLP ..> InformationExtraite : exploite
+AnalyseNLP "1" -- "1" Analyse : produit >
+Analyse "0..*" -- "1" ModeleIA : utilise >
+ModeleIA "1" -- "0..*" PredictionCompte : produit >
+PredictionCompte "0..*" -- "1" CompteComptable : désigne >
+MoteurComptable ..> Analyse : exploite
+MoteurComptable ..> RegleComptable : applique
+MoteurComptable ..> EcritureComptable : génère
+RegleComptable "0..*" -- "1..*" CompteComptable : autorise >
+Facture "1" -- "0..1" EcritureComptable : donne lieu à >
+EcritureComptable "1" *-- "2..*" LigneEcriture : contient >
+LigneEcriture "0..*" -- "1" CompteComptable : imputée sur >
+EcritureComptable "1" -- "0..1" Validation : fait l'objet de >
+EcritureComptable "1" -- "0..*" Correction : peut subir >
+Facture "1" -- "0..*" Historique : trace >
+@enduml

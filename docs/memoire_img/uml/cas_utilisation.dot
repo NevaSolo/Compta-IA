@@ -1,0 +1,74 @@
+digraph G {
+  graph [fontname="Arial", fontsize=12, bgcolor="white", rankdir=LR, nodesep=0.25, ranksep=0.7, splines=true];
+  node [fontname="Arial", fontsize=10];
+  edge [fontname="Arial", fontsize=9, color="#333333"];
+  "Utilisateur" [shape=none, image="d:\Etude\son\docs\memoire_img\uml\\actor.png", label="Utilisateur", labelloc=b, height=1.25, width=0.9, imagescale=true, fixedsize=true, fontsize=11];
+  "Comptable" [shape=none, image="d:\Etude\son\docs\memoire_img\uml\\actor.png", label="Comptable", labelloc=b, height=1.25, width=0.9, imagescale=true, fixedsize=true, fontsize=11];
+  "Administrateur" [shape=none, image="d:\Etude\son\docs\memoire_img\uml\\actor.png", label="Administrateur", labelloc=b, height=1.25, width=0.9, imagescale=true, fixedsize=true, fontsize=11];
+  subgraph cluster_sys { label=<<B>Système intelligent de génération des écritures comptables</B>>; style=rounded; color="#2F4B6B"; fontsize=12;
+    auth [shape=ellipse, style=filled, fillcolor="#F4F6F9", color="#2F4B6B", label="S'authentifier"];
+    logout [shape=ellipse, style=filled, fillcolor="#F4F6F9", color="#2F4B6B", label="Se déconnecter"];
+    import [shape=ellipse, style=filled, fillcolor="#F4F6F9", color="#2F4B6B", label="Importer une facture"];
+    consult [shape=ellipse, style=filled, fillcolor="#F4F6F9", color="#2F4B6B", label="Consulter une facture"];
+    suppr [shape=ellipse, style=filled, fillcolor="#F4F6F9", color="#2F4B6B", label="Supprimer une facture"];
+    lancer [shape=ellipse, style=filled, fillcolor="#F4F6F9", color="#2F4B6B", label="Lancer le traitement
+automatique"];
+    pretr [shape=ellipse, style=filled, fillcolor="#F4F6F9", color="#2F4B6B", label="Prétraiter la facture"];
+    ocr [shape=ellipse, style=filled, fillcolor="#F4F6F9", color="#2F4B6B", label="Extraire les informations
+par OCR"];
+    nlp [shape=ellipse, style=filled, fillcolor="#F4F6F9", color="#2F4B6B", label="Analyser le contenu
+par NLP"];
+    nature [shape=ellipse, style=filled, fillcolor="#F4F6F9", color="#2F4B6B", label="Identifier la nature
+de l'opération"];
+    comptes [shape=ellipse, style=filled, fillcolor="#F4F6F9", color="#2F4B6B", label="Proposer les comptes
+comptables"];
+    score [shape=ellipse, style=filled, fillcolor="#F4F6F9", color="#2F4B6B", label="Calculer le score
+de confiance"];
+    gen [shape=ellipse, style=filled, fillcolor="#F4F6F9", color="#2F4B6B", label="Générer l'écriture
+comptable"];
+    regles [shape=ellipse, style=filled, fillcolor="#F4F6F9", color="#2F4B6B", label="Appliquer les règles
+comptables"];
+    equil [shape=ellipse, style=filled, fillcolor="#F4F6F9", color="#2F4B6B", label="Vérifier l'équilibre
+Débit = Crédit"];
+    prop [shape=ellipse, style=filled, fillcolor="#F4F6F9", color="#2F4B6B", label="Consulter la proposition"];
+    modif [shape=ellipse, style=filled, fillcolor="#F4F6F9", color="#2F4B6B", label="Modifier l'écriture"];
+    valid [shape=ellipse, style=filled, fillcolor="#F4F6F9", color="#2F4B6B", label="Valider l'écriture"];
+    rejet [shape=ellipse, style=filled, fillcolor="#F4F6F9", color="#2F4B6B", label="Rejeter l'écriture"];
+    hist [shape=ellipse, style=filled, fillcolor="#F4F6F9", color="#2F4B6B", label="Consulter l'historique"];
+    users [shape=ellipse, style=filled, fillcolor="#F4F6F9", color="#2F4B6B", label="Gérer les utilisateurs"];
+    roles [shape=ellipse, style=filled, fillcolor="#F4F6F9", color="#2F4B6B", label="Gérer les rôles"];
+    retrain [shape=ellipse, style=filled, fillcolor="#F4F6F9", color="#2F4B6B", label="Réentraîner le modèle"];
+  }
+  "Comptable" -> "Utilisateur" [arrowhead=empty, constraint=false];
+  "Administrateur" -> "Utilisateur" [arrowhead=empty, constraint=false];
+  "Utilisateur" -> auth [arrowhead=none];
+  "Utilisateur" -> logout [arrowhead=none];
+  "Utilisateur" -> import [arrowhead=none];
+  "Utilisateur" -> consult [arrowhead=none];
+  "Utilisateur" -> lancer [arrowhead=none];
+  "Comptable" -> prop [arrowhead=none];
+  "Comptable" -> modif [arrowhead=none];
+  "Comptable" -> valid [arrowhead=none];
+  "Comptable" -> rejet [arrowhead=none];
+  "Comptable" -> hist [arrowhead=none];
+  "Administrateur" -> users [arrowhead=none];
+  "Administrateur" -> roles [arrowhead=none];
+  "Administrateur" -> hist [arrowhead=none];
+  "Administrateur" -> retrain [arrowhead=none];
+  lancer -> pretr [style=dashed, arrowhead=vee, label="«include»", fontsize=8];
+  lancer -> ocr [style=dashed, arrowhead=vee, label="«include»", fontsize=8];
+  lancer -> nlp [style=dashed, arrowhead=vee, label="«include»", fontsize=8];
+  lancer -> nature [style=dashed, arrowhead=vee, label="«include»", fontsize=8];
+  lancer -> comptes [style=dashed, arrowhead=vee, label="«include»", fontsize=8];
+  lancer -> score [style=dashed, arrowhead=vee, label="«include»", fontsize=8];
+  lancer -> gen [style=dashed, arrowhead=vee, label="«include»", fontsize=8];
+  gen -> regles [style=dashed, arrowhead=vee, label="«include»", fontsize=8];
+  gen -> equil [style=dashed, arrowhead=vee, label="«include»", fontsize=8];
+  prop -> score [style=dashed, arrowhead=vee, label="«include»", fontsize=8];
+  suppr -> consult [style=dashed, arrowhead=vee, label="«extend»", fontsize=8];
+  modif -> prop [style=dashed, arrowhead=vee, label="«extend»", fontsize=8];
+  valid -> prop [style=dashed, arrowhead=vee, label="«extend»", fontsize=8];
+  rejet -> prop [style=dashed, arrowhead=vee, label="«extend»", fontsize=8];
+  { rank=same; "Utilisateur"; "Comptable"; "Administrateur"; }
+
+}

@@ -1,0 +1,58 @@
+@startuml classes_sprint4
+title Diagramme de classes de conception - Sprint 4 : NLP et Machine Learning
+skinparam classAttributeIconSize 0
+
+class InformationExtraite {
+  -idInformation : int
+  -typeInformation : String
+  -valeur : String
+  -scoreConfiance : Decimal
+}
+class AnalyseNLP {
+  -langue : String
+  +detecterLangue() : String
+  +extraireEntites() : List
+  +identifierFournisseur() : String
+}
+class Analyse {
+  -idAnalyse : int
+  -natureOperation : String
+  -scoreConfiance : Decimal
+  +classerOperation() : String
+}
+class ModeleIA {
+  -idModele : int
+  -version : String
+  -algorithme : String
+  -f1Score : Decimal
+  -actif : Boolean
+  +predire(texte : String) : PredictionCompte
+  +entrainer() : void
+  +evaluer() : Decimal
+}
+class PredictionCompte {
+  -idPrediction : int
+  -numeroComptePropose : String
+  -scoreConfiance : Decimal
+}
+class CompteComptable {
+  -numeroCompte : String
+  -libelle : String
+  -classe : int
+}
+
+note right of ModeleIA
+  Démarrage : classifieur à mots-clés.
+  Ensuite : TF-IDF + régression logistique
+  et XGBoost, comparés à chaque réentraînement.
+  RG13 : mise en service si 30 exemples,
+  2 classes et F1 >= modèle actif
+end note
+
+AnalyseNLP ..> InformationExtraite : exploite
+AnalyseNLP "1" -- "1" Analyse : produit >
+Analyse "0..*" -- "1" ModeleIA : utilise >
+Analyse "1" *-- "1..*" PredictionCompte : propose >
+ModeleIA "1" -- "0..*" PredictionCompte : produit >
+PredictionCompte "0..*" -- "1" CompteComptable : désigne >
+@enduml

@@ -1,0 +1,60 @@
+digraph G {
+  graph [fontname="Arial", fontsize=12, bgcolor="white", rankdir=TB, nodesep=0.35, ranksep=0.3];
+  node [fontname="Arial", fontsize=10];
+  edge [fontname="Arial", fontsize=9, color="#333333"];
+  node [shape=box, style="rounded,filled", fillcolor="#F4F6F9", color="#2F4B6B", fontsize=13];
+  edge [fontsize=11];
+  start [shape=circle, label="", width=0.25, style=filled, fillcolor=black];
+  stop [shape=doublecircle, label="", width=0.2, style=filled, fillcolor=black];
+  a1 [label="Importer la facture
+(PDF ou image)"];
+  a2 [label="Prétraiter la facture"];
+  a3 [label="Extraire le texte
+avec OCR"];
+  a4 [label="Structurer les informations
+extraites"];
+  a5 [label="Analyser le contenu
+avec NLP"];
+  a6 [label="Identifier la nature
+de l'opération"];
+  a7 [label="Classer l'opération
+avec le modèle ML"];
+  a8 [label="Proposer les comptes
+comptables"];
+  a9 [label="Calculer le score
+de confiance"];
+  start -> a1;
+  a1 -> a2;
+  a2 -> a3;
+  a3 -> a4 [constraint=false];
+  a4 -> a5;
+  a5 -> a6;
+  a6 -> a7 [constraint=false];
+  a7 -> a8;
+  a8 -> a9;
+  { rank=same; a1; a4; a7; } { rank=same; a2; a5; a8; } { rank=same; a3; a6; a9; }
+  a1 -> a4 -> a7 [style=invis]; a2 -> a5 -> a8 [style=invis]; a3 -> a6 -> a9 [style=invis];
+  v1 [shape=diamond, style=filled, fillcolor="#FFF4D6", label="Validation du score\nscore ≥ 0,80 ?", fontsize=9];
+  v2 [label="Proposition\nmarquée « fiable »", fillcolor="#E3F4E8"];
+  v3 [label="Proposition marquée\n« à vérifier » (0,50 – 0,80)\nou « vérification approfondie »\n(< 0,50)", fillcolor="#FDE7E4"];
+  vn [shape=note, style=filled, fillcolor="#FFFDE8", fontsize=8, label="Méthode : validation par seuils\nd'un score agrégé (moyenne pondérée)\n25 % OCR + 30 % extraction\n+ 25 % classification + 20 % comptes"];
+  vm [shape=diamond, label="", width=0.3, height=0.3, style=filled, fillcolor=white];
+  a9 -> v1; v1 -> v2 [label="Oui"]; v1 -> v3 [label="Non"]; v2 -> vm; v3 -> vm;
+  vn -> v1 [style=dotted, arrowhead=none]; { rank=same; v1; vn; }
+  b1 [label="Appliquer les règles
+comptables"];
+  b2 [label="Générer l'écriture
+comptable"];
+  b3 [label="Vérifier l'équilibre
+Débit = Crédit"];
+  vm -> b1; b1 -> b2; b2 -> b3; { rank=same; b1; b2; b3; }
+  d1 [shape=diamond, label="Écriture\néquilibrée ?", fontsize=9, style=filled, fillcolor=white];
+  b3 -> d1;
+  c1 [label="Présenter la proposition\nau comptable"]; e1 [label="Signaler une écriture\ndéséquilibrée"]; e2 [label="Demander une correction"];
+  d1 -> c1 [label="Oui"]; d1 -> e1 [label="Non"]; e1 -> e2;
+  d2 [shape=diamond, label="Décision du\ncomptable ?", fontsize=9, style=filled, fillcolor=white]; c1 -> d2;
+  f1 [label="Enregistrer l'écriture\nvalidée"]; f2 [label="Modifier l'écriture"]; f3 [label="Enregistrer la correction"]; f4 [label="Rejeter la proposition"];
+  d2 -> f1 [label="Valider"]; d2 -> f2 [label="Modifier"]; d2 -> f4 [label="Rejeter"]; f2 -> f3;
+  h [label="Enregistrer l'historique"]; f1 -> h; f3 -> h; f4 -> h; e2 -> h; h -> stop;
+
+}

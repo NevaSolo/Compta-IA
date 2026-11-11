@@ -1,0 +1,71 @@
+@startuml classes_sprint5
+title Diagramme de classes de conception - Sprint 5 : moteur de règles et génération des écritures
+skinparam classAttributeIconSize 0
+
+class Facture {
+  -idFacture : int
+  -numeroFacture : String
+  -dateFacture : Date
+  -montantHT : Decimal
+  -montantTVA : Decimal
+  -montantTTC : Decimal
+}
+class Analyse {
+  -idAnalyse : int
+  -natureOperation : String
+  -scoreConfiance : Decimal
+}
+class MoteurComptable {
+  +appliquerRegles(a : Analyse) : void
+  +genererEcriture() : EcritureComptable
+  +verifierEquilibre() : Boolean
+}
+class RegleComptable {
+  -idRegle : int
+  -natureOperation : String
+  -comptesCandidats : List
+  -condition : String
+  +verifier(compte : String) : Boolean
+}
+class PlanComptable {
+  -idPlan : int
+  -nom : String
+  +rechercherCompte(numero : String) : CompteComptable
+}
+class EcritureComptable {
+  -idEcriture : int
+  -dateEcriture : Date
+  -statut : String
+  -totalDebit : Decimal
+  -totalCredit : Decimal
+  -scoreConfiance : Decimal
+  +ajouterLigne(l : LigneEcriture) : void
+  +calculerTotaux() : void
+  +calculerScore() : Decimal
+}
+class LigneEcriture {
+  -idLigne : int
+  -libelle : String
+  -montantDebit : Decimal
+  -montantCredit : Decimal
+}
+class CompteComptable {
+  -numeroCompte : String
+  -libelle : String
+  -classe : int
+}
+
+note right of EcritureComptable
+  RG6 : Total Débit = Total Crédit
+  RG7 : une ligne est au débit OU au crédit
+end note
+
+MoteurComptable ..> Analyse : exploite
+MoteurComptable ..> RegleComptable : applique
+MoteurComptable ..> EcritureComptable : génère
+Facture "1" -- "0..1" EcritureComptable : donne lieu à >
+EcritureComptable "1" *-- "2..*" LigneEcriture : contient >
+LigneEcriture "0..*" -- "1" CompteComptable : imputée sur >
+RegleComptable "0..*" -- "1..*" CompteComptable : autorise >
+PlanComptable "1" *-- "1..*" CompteComptable : contient >
+@enduml

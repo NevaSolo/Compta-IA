@@ -1,0 +1,166 @@
+@startuml modele_domaine
+title Modèle du domaine - Système intelligent de génération des écritures comptables
+hide methods
+hide circle
+skinparam linetype ortho
+
+' Les multiplicités traduisent les règles de gestion RG1 à RG15 (section 5.6)
+
+class Entreprise {
+  idEntreprise
+  nom
+  nif
+  stat
+  devise
+}
+class PlanComptable {
+  idPlan
+  nom
+  pays
+}
+class CompteComptable {
+  numeroCompte
+  libelle
+  classe
+}
+class Utilisateur {
+  idUtilisateur
+  nom
+  email
+  role
+}
+class Facture {
+  idFacture
+  numeroFacture
+  dateFacture
+  typeFacture
+  devise
+  montantHT
+  montantTVA
+  montantTTC
+  statut
+}
+class Document {
+  idDocument
+  nomFichier
+  typeFichier
+  taille
+  chemin
+}
+class Fournisseur {
+  idFournisseur
+  raisonSociale
+  adresse
+  nif
+  stat
+}
+class Client {
+  idClient
+  raisonSociale
+  adresse
+  nif
+}
+class TauxChange {
+  idTaux
+  devise
+  taux
+  dateEffet
+}
+class TraitementOCR {
+  idOCR
+  moteur
+  texteExtrait
+  scoreConfiance
+  dateTraitement
+}
+class InformationExtraite {
+  idInformation
+  typeInformation
+  valeur
+  scoreConfiance
+}
+class Analyse {
+  idAnalyse
+  natureOperation
+  scoreConfiance
+}
+class ModeleIA {
+  idModele
+  version
+  algorithme
+  f1Score
+  actif
+}
+class PredictionCompte {
+  idPrediction
+  numeroComptePropose
+  scoreConfiance
+}
+class RegleComptable {
+  idRegle
+  natureOperation
+  comptesCandidats
+  condition
+}
+class EcritureComptable {
+  idEcriture
+  dateEcriture
+  statut
+  totalDebit
+  totalCredit
+  scoreConfiance
+}
+class LigneEcriture {
+  idLigne
+  libelle
+  montantDebit
+  montantCredit
+}
+class Validation {
+  idValidation
+  decision
+  commentaire
+  dateValidation
+  validePar
+}
+class Correction {
+  idCorrection
+  champ
+  ancienneValeur
+  nouvelleValeur
+  dateCorrection
+  auteur
+}
+class Historique {
+  idHistorique
+  action
+  description
+  dateAction
+  auteur
+}
+
+Entreprise "1" -- "1..*" Utilisateur : emploie >
+Entreprise "0..*" -- "1" PlanComptable : choisit >
+PlanComptable "1" *-- "1..*" CompteComptable : contient >
+Entreprise "1" -- "0..*" Facture : possède >
+Utilisateur "1" -- "0..*" Facture : importe >
+Facture "1" *-- "1" Document : est stockée dans >
+Facture "0..*" -- "1" Fournisseur : émise par >
+Facture "0..*" -- "0..1" Client : adressée à >
+Facture "0..*" -- "0..1" TauxChange : convertie selon >
+Facture "1" -- "1" TraitementOCR : subit >
+TraitementOCR "1" *-- "1..*" InformationExtraite : produit >
+Facture "1" -- "0..1" Analyse : fait l'objet de >
+Analyse "1" *-- "1..*" PredictionCompte : propose >
+ModeleIA "1" -- "0..*" PredictionCompte : produit >
+Analyse "0..*" -- "1" RegleComptable : applique >
+RegleComptable "0..*" -- "1..*" CompteComptable : autorise >
+PredictionCompte "0..*" -- "1" CompteComptable : désigne >
+Facture "1" -- "0..1" EcritureComptable : génère >
+EcritureComptable "1" *-- "2..*" LigneEcriture : contient >
+LigneEcriture "0..*" -- "1" CompteComptable : imputée sur >
+EcritureComptable "1" -- "0..1" Validation : fait l'objet de >
+EcritureComptable "1" -- "0..*" Correction : peut subir >
+Correction "0..*" -- "0..1" ModeleIA : alimente >
+Facture "1" -- "0..*" Historique : trace >
+@enduml

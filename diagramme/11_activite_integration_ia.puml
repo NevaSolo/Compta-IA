@@ -1,0 +1,53 @@
+@startuml activite_integration_ia
+title Processus d'intégration de l'IA dans le système
+
+start
+:Importer la facture\n(PDF ou image);
+:Prétraiter la facture;
+:Extraire le texte\navec OCR;
+:Structurer les informations\nextraites;
+:Analyser le contenu\navec NLP;
+:Identifier la nature\nde l'opération;
+:Classer l'opération\navec le modèle ML;
+:Proposer les comptes\ncomptables;
+:Calculer le score\nde confiance;
+
+' Étape de validation du score (méthode : validation par seuils)
+if (Validation du score :\nscore >= 0,80 ?) then (Oui)
+  :Proposition marquée « fiable »;
+else (Non)
+  if (score >= 0,50 ?) then (Oui)
+    :Proposition marquée « à vérifier »;
+  else (Non)
+    :Proposition marquée\n« vérification approfondie »;
+  endif
+endif
+note right
+  Méthode : validation par seuils d'un score agrégé
+  (moyenne pondérée) :
+  25 % OCR + 30 % extraction
+  + 25 % classification + 20 % comptes
+end note
+
+:Appliquer les règles\ncomptables;
+:Générer l'écriture\ncomptable;
+:Vérifier l'équilibre\nDébit = Crédit;
+
+if (Écriture équilibrée ?) then (Oui)
+  :Présenter la proposition\nau comptable;
+  switch (Décision du comptable ?)
+  case (Valider)
+    :Enregistrer l'écriture\nvalidée;
+  case (Modifier)
+    :Modifier l'écriture;
+    :Enregistrer la correction;
+  case (Rejeter)
+    :Rejeter la proposition;
+  endswitch
+else (Non)
+  :Signaler une écriture\ndéséquilibrée;
+  :Demander une correction;
+endif
+:Enregistrer l'historique;
+stop
+@enduml
