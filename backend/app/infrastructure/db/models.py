@@ -154,6 +154,24 @@ class ExtractedEntityModel(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class InvoiceLineModel(Base):
+    """Lignes de détail extraites du tableau de la facture (migration 005)."""
+    __tablename__ = "invoice_lines"
+    __table_args__ = (UniqueConstraint("invoice_id", "line_no", name="uq_invoice_lines_no"),)
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True)
+    invoice_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("invoices.id", ondelete="CASCADE"))
+    line_no: Mapped[int] = mapped_column(SmallInteger)
+    description: Mapped[str] = mapped_column(String(500))
+    quantity: Mapped[float | None] = mapped_column(Numeric(15, 4), nullable=True)
+    unit_price: Mapped[float | None] = mapped_column(Numeric(15, 4), nullable=True)
+    amount: Mapped[float] = mapped_column(Numeric(15, 2))
+    vat_rate: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
+    confidence: Mapped[float] = mapped_column(Numeric(5, 4))
+    source_bbox: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class ModelVersionModel(Base):
     __tablename__ = "model_versions"
     __table_args__ = (UniqueConstraint("name", "version", name="uq_model_name_version"),)

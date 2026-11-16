@@ -129,6 +129,21 @@ class ExtractedEntity:
 
 
 @dataclass
+class InvoiceLine:
+    """Une ligne de détail de la facture (article / prestation), telle
+    qu'imprimée : `amount` est le montant de la ligne (HT ou TTC selon la
+    facture — cf. reconcile_line_items), `vat_rate` en pourcentage (20.00)."""
+    line_no: int
+    description: str
+    amount: Decimal
+    quantity: Decimal | None = None
+    unit_price: Decimal | None = None
+    vat_rate: Decimal | None = None
+    confidence: float = 0.0
+    source_bbox: list | None = None
+
+
+@dataclass
 class Invoice:
     id: int | None
     original_filename: str

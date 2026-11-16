@@ -17,14 +17,19 @@ from app.domain.entities import (
 )
 from app.domain.ports import (
     AccountRepository, ChartRepository, CompanyRepository, EntityExtractor, EntryRepository,
-    ExchangeRateRepository, InvoiceRepository, OcrResult, RuleRepository, SupplierRepository,
+    ExchangeRateRepository, InvoiceRepository, LineItemExtractor, OcrResult, RuleRepository,
+    SupplierRepository,
 )
-from app.domain.rules import VATCalculator
-from app.infrastructure.ml.classifiers import ConstrainedAccountSuggester, load_active_classifier
+from app.domain.rules import VATCalculator, reconcile_line_items
+from app.infrastructure.ml.classifiers import (
+    ACCOUNT_KEYWORDS, ConstrainedAccountSuggester, load_active_classifier,
+)
 from app.infrastructure.nlp.extractor import detect_document_type, detect_language
+from app.infrastructure.nlp.line_items import TableLineExtractor
 from app.infrastructure.ocr.engines import OcrOrchestrator
 from app.infrastructure.ocr.pdf_text import read_pdf_text_layer
 from app.infrastructure.ocr.preprocessing import pdf_to_images, preprocess_image
+from app.infrastructure.rules.line_entry import LineEntryBuilder
 from app.infrastructure.rules.rule_engine import RuleEngine, RuleEngineError
 
 logger = logging.getLogger(__name__)
@@ -50,8 +55,10 @@ class ProcessInvoicePipelineUseCase:
                  account_code_by_id: dict[int, str] | None = None,
                  companies: CompanyRepository | None = None,
                  rates: ExchangeRateRepository | None = None,
-                 charts: ChartRepository | None = None):
+                 charts: ChartRepository | None = None,
+                 line_extractor: LineItemExtractor | None = None):
         self.charts = charts
+        self.line_extractor = line_extractor or TableLineExtractor()
         self.companies = companies
         self.rates = rates
         self.invoices = invoices
@@ -156,6 +163,7 @@ class ProcessInvoicePipelineUseCase:
         entities = self.extractor.extract(ocr_result, invoice.language)
         self.invoices.save_entities(invoice.id, entities)
         self._apply_entities(invoice, entities)
+        self._extract_line_items(invoice.id, ocr_result)
 
         # --- 5. Cohérence arithmétique + auto-résolution ---------------------
         invoice.current_step = PipelineStep.COHERENCE_CHECK
@@ -251,6 +259,7 @@ class ProcessInvoicePipelineUseCase:
             invoice.error_message = f"Génération d'écriture impossible : {exc}"
             self.invoices.update(invoice)
             return
+        entry = self._ventilate(entry, invoice, rule, chart_id, chart, label, rate) or entry
 
         # --- 8. Score de confiance global ---------------------------------------
         invoice.current_step = PipelineStep.CONFIDENCE_SCORING
@@ -272,6 +281,54 @@ class ProcessInvoicePipelineUseCase:
                     invoice.id, entry.confidence_score)
 
     # ------------------------------------------------------------- Helpers
+    def _ventilate(self, entry, invoice: Invoice, rule: dict, chart_id: int | None, chart,
+                   label: str, rate: Decimal | None):
+        """Écriture ventilée ligne par ligne (un compte par nature de dépense),
+        à la place de l'écriture au niveau de la facture — uniquement si les
+        lignes extraites sont fiables (leur somme = Total HT) et la facture
+        cohérente (HT + TVA = TTC). Dans tous les autres cas, ou en cas
+        d'erreur, None : l'écriture au niveau de la facture est conservée."""
+        if not self.settings.line_level_entries or not invoice.arithmetic_ok                 or invoice.total_vat is None:
+            return None
+        try:
+            lines = self.invoices.get_line_items(invoice.id)
+            if reconcile_line_items(lines, invoice.total_ht, invoice.total_ttc) != "HT":
+                return None
+            reserved = {spec["default_account"] for spec in rule["template"].get("lines", [])
+                        if spec["amount"] in ("VAT", "TTC")}
+            fallback_account = next((l.account_code for l in entry.lines
+                                     if l.account_code not in reserved), None)
+            if fallback_account is None:
+                return None
+            keywords = (keywords_for_chart(chart.code) if chart else None) or ACCOUNT_KEYWORDS
+            builder = LineEntryBuilder(
+                _ChartAccounts(self.accounts, chart_id), self.rules.list_active_for_chart(chart_id),
+                keywords, Decimal(str(self.settings.fixed_asset_min_amount)))
+            return builder.build(
+                lines=lines, fallback_rule=rule, fallback_account=fallback_account,
+                total_vat=invoice.total_vat, invoice_id=invoice.id, company_id=invoice.company_id,
+                entry_date=entry.entry_date, label=entry.label, rate=rate,
+                reverse_sides=invoice.document_type == DocumentType.AVOIR)
+        except Exception:
+            logger.warning("Ventilation par ligne impossible pour la facture %s : "
+                           "écriture au niveau de la facture conservée", invoice.id, exc_info=True)
+            return None
+
+    def _extract_line_items(self, invoice_id: int, ocr_result: OcrResult) -> None:
+        """Lignes de détail : extraites et enregistrées pour consultation, sans
+        effet (pour l'instant) sur l'écriture. Toute erreur est absorbée : une
+        lecture de tableau ratée ne doit jamais faire échouer le traitement."""
+        try:
+            lines = self.line_extractor.extract(ocr_result)
+            if lines:
+                self.invoices.save_line_items(invoice_id, lines)
+        except Exception:
+            logger.warning("Extraction des lignes impossible pour la facture %s",
+                           invoice_id, exc_info=True)
+            rollback = getattr(self.invoices, "rollback", None)
+            if rollback is not None:
+                rollback()
+
     def _base_currency(self, company_id: int) -> str:
         company = self.companies.get_by_id(company_id) if self.companies else None
         return company.base_currency if company else self.settings.default_currency

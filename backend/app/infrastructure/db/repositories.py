@@ -444,7 +444,8 @@ class MySQLInvoiceRepository(ports.InvoiceRepository):
         """Efface OCR, entités et classification d'un passage précédent : le
         pipeline les recrée, et leurs clés d'unicité (une ligne par facture)
         interdisent sinon de relancer le traitement."""
-        for model in (m.OcrResultModel, m.ExtractedEntityModel, m.ClassificationModel):
+        for model in (m.OcrResultModel, m.ExtractedEntityModel, m.InvoiceLineModel,
+                      m.ClassificationModel):
             self.db.execute(delete(model).where(model.invoice_id == invoice_id))
         self.db.commit()
 
@@ -487,6 +488,33 @@ class MySQLInvoiceRepository(ports.InvoiceRepository):
         return [{"entity_type": r.entity_type, "raw_value": r.raw_value,
                  "normalized_value": r.normalized_value, "confidence": float(r.confidence),
                  "method": r.extraction_method, "source_block": r.source_block}
+                for r in rows]
+
+    def rollback(self) -> None:
+        """Annule la transaction en échec (étape facultative du pipeline) pour
+        que la session reste utilisable par les étapes suivantes."""
+        self.db.rollback()
+
+    def save_line_items(self, invoice_id: int, lines: list[dom.InvoiceLine]) -> None:
+        for line in lines:
+            self.db.add(m.InvoiceLineModel(
+                invoice_id=invoice_id, line_no=line.line_no, description=line.description[:500],
+                quantity=line.quantity, unit_price=line.unit_price, amount=line.amount,
+                vat_rate=line.vat_rate, confidence=line.confidence, source_bbox=line.source_bbox))
+        self.db.commit()
+
+    def get_line_items(self, invoice_id: int) -> list[dom.InvoiceLine]:
+        rows = self.db.scalars(select(m.InvoiceLineModel)
+                               .where(m.InvoiceLineModel.invoice_id == invoice_id)
+                               .order_by(m.InvoiceLineModel.line_no)).all()
+
+        def dec(value) -> Decimal | None:
+            return Decimal(str(value)) if value is not None else None
+        return [dom.InvoiceLine(
+                    line_no=r.line_no, description=r.description, amount=dec(r.amount),
+                    quantity=dec(r.quantity), unit_price=dec(r.unit_price),
+                    vat_rate=dec(r.vat_rate), confidence=float(r.confidence),
+                    source_bbox=r.source_bbox)
                 for r in rows]
 
     def save_classification(self, invoice_id, operation_type, probability,
@@ -626,6 +654,15 @@ class MySQLRuleRepository(ports.RuleRepository):
             return None
         return {"id": row.id, "code": row.code, "description": row.description,
                 "template": row.template, "operation_type": row.operation_type}
+
+    def list_active_for_chart(self, chart_id: int | None) -> list[dict]:
+        query = select(m.AccountingRuleModel).where(m.AccountingRuleModel.is_active.is_(True))
+        if chart_id is not None:
+            query = query.where(m.AccountingRuleModel.chart_id == chart_id)
+        rows = self.db.scalars(query.order_by(m.AccountingRuleModel.priority,
+                                              m.AccountingRuleModel.code)).all()
+        return [{"id": r.id, "code": r.code, "description": r.description,
+                 "template": r.template, "operation_type": r.operation_type} for r in rows]
 
     def list_all(self) -> list[dict]:
         rows = self.db.scalars(select(m.AccountingRuleModel)

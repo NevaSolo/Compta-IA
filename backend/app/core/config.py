@@ -38,6 +38,12 @@ class Settings(BaseSettings):
     confidence_w_classification: float = 0.25
     confidence_w_accounts: float = 0.20
 
+    # Ventilation de l'écriture ligne par ligne (interrupteur : false = écriture au
+    # niveau de la facture, comme avant) et seuil d'immobilisation, dans la devise
+    # de l'entreprise (0 = pas de seuil : un bien durable est toujours immobilisé)
+    line_level_entries: bool = True
+    fixed_asset_min_amount: float = 0.0
+
     # Réentraînement
     retrain_correction_threshold: int = 50
 

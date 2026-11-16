@@ -15,6 +15,7 @@ from app.application.use_cases import (
 )
 from app.core.dependencies import get_current_user
 from app.domain.entities import InvoiceStatus, Role, User
+from app.domain.rules import reconcile_line_items
 from app.infrastructure.db.database import get_db
 from app.infrastructure.db.repositories import (
     MySQLAccountRepository, MySQLAuditRepository, MySQLCompanyRepository,
@@ -24,8 +25,8 @@ from app.infrastructure.db.repositories import (
 from app.infrastructure.nlp.extractor import HybridExtractor
 from app.infrastructure.storage.local_storage import LocalFileStorage
 from app.presentation.schemas import (
-    ExtractedEntityOut, InvoiceOut, InvoiceRateUpdate, OcrResultOut, PaginatedInvoices,
-    RejectRequest,
+    ExtractedEntityOut, InvoiceLineOut, InvoiceLinesOut, InvoiceOut, InvoiceRateUpdate,
+    OcrResultOut, PaginatedInvoices, RejectRequest,
 )
 
 router = APIRouter(prefix="/api/invoices", tags=["Factures"])
@@ -185,6 +186,22 @@ def get_entities(invoice_id: int, user: User = Depends(get_current_user),
     _check_access(invoice, user)
     return [ExtractedEntityOut(**e)
             for e in MySQLInvoiceRepository(db).get_entities(invoice_id)]
+
+
+@router.get("/{invoice_id}/lines", response_model=InvoiceLinesOut,
+            summary="Lignes de détail extraites (tableau articles / prestations)")
+def get_lines(invoice_id: int, user: User = Depends(get_current_user),
+              db: Session = Depends(get_db)):
+    repo = MySQLInvoiceRepository(db)
+    invoice = repo.get_by_id(invoice_id)
+    if invoice is None:
+        raise HTTPException(status_code=404, detail="Facture introuvable")
+    _check_access(invoice, user)
+    lines = repo.get_line_items(invoice_id)
+    return InvoiceLinesOut(
+        items=[InvoiceLineOut(**vars(line)) for line in lines],
+        total=sum((line.amount for line in lines), Decimal("0")),
+        matches=reconcile_line_items(lines, invoice.total_ht, invoice.total_ttc))
 
 
 _PIPELINE_RUNNING_STATUSES = {"UPLOADED", "PREPROCESSING", "OCR_DONE", "ANALYZED"}

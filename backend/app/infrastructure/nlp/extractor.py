@@ -26,7 +26,9 @@ ANCHORS = {
                  r"net\s*total", r"base\s*imposable"],
     "TOTAL_VAT": [r"t\.?v\.?a", r"\bvat\b", r"taxe"],
     "INVOICE_NUMBER": [r"facture\s*(n[°ºo]|num|#)", r"invoice\s*(no|#|number)",
-                       r"fact\.?\s*n[°ºo]", r"faktiora", r"\bn[°ºo]?\s*:"],
+                       r"fact\.?\s*n[°ºo]", r"faktiora", r"\bn[°ºo]?\s*:",
+                       # « N° FV-2024-0180 » sans « : » (mais pas « N° commande client »)
+                       r"^\s*n[°º]\s*(?=[a-z]{0,5}-?\d)"],
     "NIF": [r"\bn\.?i\.?f\b"],
     "STAT": [r"\bstat\b"],
     "DATE": [r"\bdate\b", r"\bdaty\b", r"\ble\b\s*:"],
@@ -86,9 +88,15 @@ VAT_PRIMARY = r"total\s*(?:tva|vat|tax)|montant\s*(?:de\s*la\s*)?(?:tva|vat)|vat
 # conditionnel (jamais le TTC), « N° TVA » est un identifiant, pas une taxe.
 EXCLUDED_ANCHORS = {
     "TOTAL_TTC": re.compile(r"escompte|early\s*payment|prompt\s*payment|rebate", re.IGNORECASE),
-    "TOTAL_VAT": re.compile(r"n\s*[°º]|\bid\b|identif|num[ée]ro|number|siret|siren|registration|intracom",
+    # « Total HT soumis à TVA 20 % » : base HT d'un seul taux (facture multi-taux)…
+    "TOTAL_HT": re.compile(r"soumis|assujetti", re.IGNORECASE),
+    # … qui n'est pas non plus un montant de TVA, malgré la mention « TVA »
+    "TOTAL_VAT": re.compile(r"n\s*[°º]|\bid\b|identif|num[ée]ro|number|siret|siren|registration|intracom"
+                            r"|soumis|assujetti|\bh\.?t\b|hors\s*tax|base\s*(?:h\.?t|imposable)",
                             re.IGNORECASE),
 }
+# Taux porté par un libellé de TVA : « TVA 10 % », « VAT @ 5.5% »
+RATE_IN_LABEL_RE = re.compile(r"(\d+(?:[.,]\d+)?)\s*%")
 TOLERANCE = Decimal("0.02")  # écart d'arrondi toléré entre HT + TVA et TTC
 
 # Montants purement informatifs (n'entrent pas dans l'écriture) : montrés au comptable
@@ -245,6 +253,7 @@ class _Candidate:
     confidence: float
     rank: int
     exempt: bool = False
+    anchor: str = ""  # libellé qui a désigné ce montant
 
     @classmethod
     def make(cls, raw: str, block: OcrBlock, confidence: float, rank: int) -> "_Candidate":
@@ -306,6 +315,8 @@ class HybridExtractor(EntityExtractor):
                             best_key, best = key, (ht, vat, ttc)
             if best:
                 chosen = {"TOTAL_HT": best[0], "TOTAL_VAT": best[1], "TOTAL_TTC": best[2]}
+            else:
+                chosen = self._multi_rate_trio(pools, position)
         # Sinon (un total manquant, ou aucun trio cohérent) : meilleur candidat par type
         for entity_type, pool in pools.items():
             if entity_type not in chosen and pool:
@@ -316,6 +327,36 @@ class HybridExtractor(EntityExtractor):
                     confidence=round(c.confidence, 4), method=ExtractionMethod.REGEX,
                     source_block={"bbox": c.block.bbox, "text": c.block.text})
                 for t, c in chosen.items()]
+
+    @staticmethod
+    def _multi_rate_trio(pools: dict[str, list["_Candidate"]], position) -> dict[str, "_Candidate"]:
+        """Facture à plusieurs taux sans ligne « Total TVA » : « TVA 10 % 35,60 »
+        puis « TVA 20 % 1 510,48 ». La TVA totale est la somme des montants par
+        taux — retenue seulement si HT + somme = TTC (arbitrage par le calcul)."""
+        by_rate: dict[Decimal, _Candidate] = {}
+        for c in pools["TOTAL_VAT"]:
+            rate = RATE_IN_LABEL_RE.search(c.anchor)
+            if c.value is None or c.rank == 0 or not rate:
+                continue
+            by_rate.setdefault(Decimal(rate.group(1).replace(",", ".")), c)  # un montant par taux
+        if len(by_rate) < 2:
+            return {}
+        parts = list(by_rate.values())
+        total = sum((c.value for c in parts), Decimal("0"))
+        best_key, best = None, None
+        for ht in pools["TOTAL_HT"]:
+            for ttc in pools["TOTAL_TTC"]:
+                if abs(ht.value + total - ttc.value) > TOLERANCE:
+                    continue
+                key = (-(ht.rank + ttc.rank), position("TOTAL_TTC", ttc), position("TOTAL_HT", ht))
+                if best_key is None or key > best_key:
+                    best_key, best = key, (ht, ttc)
+        if best is None:
+            return {}
+        vat = _Candidate(raw=" + ".join(c.raw for c in parts), normalized=f"{total:.2f}", value=total,
+                         block=parts[-1].block, confidence=min(c.confidence for c in parts), rank=1,
+                         anchor=" + ".join(c.anchor for c in parts))
+        return {"TOTAL_HT": best[0], "TOTAL_VAT": vat, "TOTAL_TTC": best[1]}
 
     @staticmethod
     def _rank(entity_type: str, anchor_text: str) -> int:
@@ -348,7 +389,9 @@ class HybridExtractor(EntityExtractor):
                 m for m in AMOUNT_RE.findall(anchor.text)
                 if not re.search(re.escape(m) + r"\s*%", anchor.text)]
             if own:
-                own_candidates.append(_Candidate.make(own[-1], anchor, anchor.confidence, rank))
+                candidate = _Candidate.make(own[-1], anchor, anchor.confidence, rank)
+                candidate.anchor = anchor.text
+                own_candidates.append(candidate)
             # 2) montant dans un bloc aligné horizontalement (même ligne)
             for other in blocks:
                 if other is anchor or not _same_visual_line(anchor, other):
@@ -359,6 +402,7 @@ class HybridExtractor(EntityExtractor):
                     continue
                 candidate = _Candidate.make(amounts[-1], other,
                                             min(anchor.confidence, other.confidence), rank)
+                candidate.anchor = anchor.text
                 if _block_center_x(other) > _block_center_x(anchor):
                     right_candidates.append(candidate)
                 elif _looks_like_money(amounts[-1]):
