@@ -10,7 +10,8 @@ from datetime import date
 from decimal import Decimal
 
 from app.domain.entities import (
-    Account, Chart, Company, ExchangeRate, ExtractedEntity, Invoice, JournalEntry, OperationType,
+    Account, Chart, Company, ExchangeRate, ExtractedEntity, Invoice, InvoiceLine, JournalEntry,
+    OperationType,
     Supplier, User,
 )
 
@@ -63,6 +64,13 @@ class EntityExtractor(ABC):
 
     @abstractmethod
     def extract(self, ocr_result: OcrResult, language: str | None) -> list[ExtractedEntity]: ...
+
+
+class LineItemExtractor(ABC):
+    """Contrat d'extraction des lignes de détail (tableau articles / prestations)."""
+
+    @abstractmethod
+    def extract(self, ocr_result: OcrResult) -> list[InvoiceLine]: ...
 
 
 class OperationClassifier(ABC):
@@ -194,6 +202,10 @@ class InvoiceRepository(ABC):
     @abstractmethod
     def get_entities(self, invoice_id: int) -> list[dict]: ...
     @abstractmethod
+    def save_line_items(self, invoice_id: int, lines: list[InvoiceLine]) -> None: ...
+    @abstractmethod
+    def get_line_items(self, invoice_id: int) -> list[InvoiceLine]: ...
+    @abstractmethod
     def save_classification(self, invoice_id: int, operation_type: str,
                             probability: float, probabilities: dict,
                             model_version: str) -> None: ...
@@ -225,6 +237,9 @@ class RuleRepository(ABC):
     def get_active_for_operation(self, operation_type: str, chart_id: int | None = None) -> dict | None: ...
     @abstractmethod
     def list_all(self) -> list[dict]: ...
+    @abstractmethod
+    def list_active_for_chart(self, chart_id: int | None) -> list[dict]:
+        """Règles actives d'un plan, par priorité croissante (ventilation par ligne)."""
 
 
 class AuditRepository(ABC):

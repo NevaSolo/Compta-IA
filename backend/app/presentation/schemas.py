@@ -133,6 +133,25 @@ class ExtractedEntityOut(BaseModel):
     source_block: dict | None = None
 
 
+class InvoiceLineOut(BaseModel):
+    line_no: int
+    description: str
+    quantity: Decimal | None = None
+    unit_price: Decimal | None = None
+    amount: Decimal
+    vat_rate: Decimal | None = None
+    confidence: float
+    source_bbox: list | None = None
+
+
+class InvoiceLinesOut(BaseModel):
+    items: list[InvoiceLineOut]
+    total: Decimal
+    # Total de la facture sur lequel la somme des lignes retombe : "HT", "TTC",
+    # ou None (lignes incomplètes ou mal lues : à ne pas utiliser pour ventiler)
+    matches: str | None = None
+
+
 class OcrResultOut(BaseModel):
     engine: str
     raw_text: str

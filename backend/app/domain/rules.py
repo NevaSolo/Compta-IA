@@ -6,7 +6,7 @@ elles garantissent la conformité au principe de la partie double
 selon le système dit en partie double »)."""
 from decimal import Decimal, ROUND_HALF_UP
 
-from app.domain.entities import JournalEntry
+from app.domain.entities import InvoiceLine, JournalEntry
 
 
 class UnbalancedEntryError(Exception):
@@ -108,3 +108,23 @@ class VATCalculator:
                 return ht, vat_calc, self._round(ht + vat_calc)
             return ht, Decimal("0.00"), ht
         return None
+
+
+def reconcile_line_items(lines: list[InvoiceLine], total_ht: Decimal | None,
+                         total_ttc: Decimal | None) -> str | None:
+    """Les lignes extraites sont-elles fiables ? Elles le sont si leur somme
+    retombe sur un total de la facture : « HT » (cas usuel) ou « TTC »
+    (facture qui affiche des montants de ligne toutes taxes comprises).
+    Retourne None sinon (ligne manquée, remise globale, lecture erronée) :
+    la ventilation ligne par ligne ne doit alors pas être utilisée.
+
+    Tolérance : un centime d'arrondi par ligne, au moins deux."""
+    if not lines:
+        return None
+    total = sum((line.amount for line in lines), Decimal("0"))
+    tolerance = Decimal("0.01") * max(2, len(lines))
+    if total_ht is not None and abs(total - total_ht) <= tolerance:
+        return "HT"
+    if total_ttc is not None and abs(total - total_ttc) <= tolerance:
+        return "TTC"
+    return None

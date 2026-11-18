@@ -349,3 +349,52 @@ class TestSupplierFromExplicitLabel:
         assert self._supplier(block("ACME INDUSTRIES", x=60, y=40, w=150),
                               block("Vendeur :", x=70, y=100), block("Téléphone :", x=200, y=100),
                               block("Merci de votre confiance", x=60, y=900, w=200)) == "ACME INDUSTRIES"
+
+
+class TestMultiRateInvoice:
+    """Facture à plusieurs taux de TVA : bases HT par taux, TVA par taux, sans « Total TVA »."""
+    BLOCKS = [
+        block("Total HT soumis à TVA 0 %", x=360, y=600, w=150), block("42,00 €", x=520, y=600),
+        block("Total HT soumis à TVA 10 %", x=360, y=620, w=150), block("356,00 €", x=520, y=620),
+        block("Total HT soumis à TVA 20 %", x=360, y=640, w=150), block("7 552,40 €", x=520, y=640),
+        block("Total HT", x=360, y=660), block("7 950,40 €", x=520, y=660),
+        block("TVA 0 %", x=360, y=680), block("0,00 €", x=520, y=680),
+        block("TVA 10 %", x=360, y=700), block("35,60 €", x=520, y=700),
+        block("TVA 20 %", x=360, y=720), block("1 510,48 €", x=520, y=720),
+        block("Total TTC", x=360, y=740), block("9 496,48 €", x=520, y=740),
+    ]
+
+    def _amounts(self, blocks):
+        result = OcrResult(engine="TEST", raw_text="", mean_confidence=0.9, blocks=blocks)
+        return {e.entity_type: e.normalized_value
+                for e in HybridExtractor(use_spacy=False).extract(result, "fr")
+                if e.entity_type.startswith("TOTAL_")}
+
+    def test_vat_is_the_sum_of_per_rate_amounts(self):
+        assert self._amounts(self.BLOCKS) == {
+            "TOTAL_HT": "7950.40", "TOTAL_VAT": "1546.08", "TOTAL_TTC": "9496.48"}
+
+    def test_per_rate_base_is_never_the_total_ht_nor_the_vat(self):
+        amounts = self._amounts(self.BLOCKS)
+        assert amounts["TOTAL_HT"] != "7552.40" and amounts["TOTAL_VAT"] != "7552.40"
+
+    def test_single_rate_invoice_is_unchanged(self):
+        assert self._amounts([
+            block("Total HT", x=360, y=600), block("1 000,00", x=520, y=600),
+            block("TVA 20 %", x=360, y=620), block("200,00", x=520, y=620),
+            block("Total TTC", x=360, y=640), block("1 200,00", x=520, y=640),
+        ]) == {"TOTAL_HT": "1000.00", "TOTAL_VAT": "200.00", "TOTAL_TTC": "1200.00"}
+
+
+class TestInvoiceNumberWithoutColon:
+    def _number(self, *blocks):
+        result = OcrResult(engine="TEST", raw_text="", mean_confidence=0.9, blocks=list(blocks))
+        return next((e.normalized_value for e in HybridExtractor(use_spacy=False).extract(result, "fr")
+                     if e.entity_type == "INVOICE_NUMBER"), None)
+
+    def test_number_sign_followed_by_the_number(self):
+        assert self._number(block("N° FV-2024-0180", x=400, y=80, w=150)) == "FV-2024-0180"
+
+    def test_customer_order_number_is_not_the_invoice_number(self):
+        assert self._number(block("N° commande client", x=300, y=200, w=150),
+                            block("BC-ALT-7742", x=460, y=200)) is None
