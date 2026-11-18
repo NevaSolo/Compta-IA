@@ -2,3 +2,7 @@
 # même sur un checkout Windows (sinon le "#!/usr/bin/env bash" devient
 # invalide une fois exécuté dans un conteneur Linux).
 *.sh text eol=lf
+
+# Fichiers binaires (factures de test) : jamais de conversion des fins de ligne
+*.pdf binary
+*.png binary
