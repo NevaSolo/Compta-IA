@@ -13,7 +13,7 @@ from app.catalog.installer import keywords_for_chart
 from app.core.config import get_settings
 from app.core.currency import convert_amounts
 from app.domain.entities import (
-    DocumentType, ExtractedEntity, Invoice, InvoiceStatus, PipelineStep, Supplier,
+    DocumentType, ExtractedEntity, ExtractionMethod, Invoice, InvoiceStatus, PipelineStep, Supplier,
 )
 from app.domain.ports import (
     AccountRepository, ChartRepository, CompanyRepository, EntityExtractor, EntryRepository,
@@ -180,6 +180,7 @@ class ProcessInvoicePipelineUseCase:
         if resolved:
             invoice.total_ht, invoice.total_vat, invoice.total_ttc = resolved
         invoice.arithmetic_ok = invoice.check_arithmetic()
+        entities += self._check_line_vat(invoice, entities)
         invoice.status = InvoiceStatus.ANALYZED
         self.invoices.update(invoice)
 
@@ -318,6 +319,43 @@ class ProcessInvoicePipelineUseCase:
                            "écriture au niveau de la facture conservée", invoice.id, exc_info=True)
             return None
 
+    def _check_line_vat(self, invoice: Invoice, entities: list[ExtractedEntity]) -> list[ExtractedEntity]:
+        """TVA recalculée à partir des lignes (montant × taux de chaque ligne) et
+        comparée à la TVA imprimée. Complète le contrôle du récapitulatif TVA
+        (extracteur), quand la facture n'en a pas : une TVA mal calculée passe
+        sinon inaperçue, puisque HT + TVA = TTC reste vrai. Ne bloque rien : le
+        comptable est averti, et le score de confiance baisse."""
+        if invoice.total_vat is None or any(e.entity_type == "VAT_RATE_MISMATCH" for e in entities):
+            return []
+        try:
+            lines = self.invoices.get_line_items(invoice.id)
+            if not lines or any(l.vat_rate is None for l in lines):
+                return []
+            if reconcile_line_items(lines, invoice.total_ht, invoice.total_ttc) != "HT":
+                lines = net_of_global_discount(lines, invoice.total_ht,
+                                               self._entity_amount(invoice.id, "GLOBAL_DISCOUNT"))
+                if lines is None:
+                    return []   # lignes incomplètes : pas de base sûre pour recalculer
+            expected = sum(((l.amount * l.vat_rate / 100).quantize(Decimal("0.01")) for l in lines),
+                           Decimal("0"))
+            gap = invoice.total_vat - expected
+            if abs(gap) <= max(Decimal("1"), expected * Decimal("0.001")):
+                return []
+            warning = ExtractedEntity(
+                entity_type="VAT_RATE_MISMATCH",
+                raw_value=(f"TVA imprimée {invoice.total_vat:,.2f}, TVA recalculée sur les lignes "
+                           f"{expected:,.2f}").replace(",", " ").replace(".", ","),
+                normalized_value=f"{gap:.2f}", confidence=0.9, method=ExtractionMethod.REGEX)
+            self.invoices.save_entities(invoice.id, [warning])
+            return [warning]
+        except Exception:
+            logger.warning("Contrôle de la TVA par ligne impossible pour la facture %s",
+                           invoice.id, exc_info=True)
+            rollback = getattr(self.invoices, "rollback", None)
+            if rollback is not None:
+                rollback()
+            return []
+
     def _entity_amount(self, invoice_id: int, entity_type: str) -> Decimal | None:
         for entity in self.invoices.get_entities(invoice_id):
             if entity["entity_type"] == entity_type and entity.get("normalized_value"):
@@ -417,6 +455,8 @@ class ProcessInvoicePipelineUseCase:
                  + s.confidence_w_accounts * c_accounts)
         if not arithmetic_ok:
             score -= 0.15
+        if any(e.entity_type == "VAT_RATE_MISMATCH" for e in entities):
+            score -= 0.15   # TVA incohérente avec les taux : la proposition doit être vérifiée
         if not supplier_known:
             score -= 0.10
         if ocr.engine == "TESSERACT":

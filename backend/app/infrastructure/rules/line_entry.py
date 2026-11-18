@@ -53,7 +53,14 @@ _EQUIPMENT = ["four", "plan de travail", "chambre froide", "refrigerateur", "con
 _FOOD = ["denree", "alimentaire", "huile", "farine", "sucre", "riz", "lait", "beurre", "oeuf", "fromage",
          "viande", "poisson", "volaille", "poulet", "legume", "fruit", "epice", "conserve", "boisson",
          "cafe", "vin", "biere", "levure", "sel"]
-_EQUIPMENT += ["plaque de cuisson", "plaques de cuisson", "cuisiniere", "four a gaz"]
+_EQUIPMENT += ["plaque de cuisson", "plaques de cuisson", "cuisiniere", "four a gaz",
+               # matériel médical
+               "moniteur", "lit d'hospitalisation", "lit medicalise", "autoclave", "sterilisateur",
+               "echographe", "defibrillateur", "electrocardiographe", "materiel medical",
+               "equipement medical", "table d'examen", "fauteuil dentaire"]
+# Consommables médicaux : non stockés (606), jamais immobilisés
+_MEDICAL_SUPPLIES = ["serum", "compresse", "gant", "seringue", "pansement", "sterile",
+                     "consommable medical", "consommables medicaux", "catheter", "masque chirurgical"]
 # Petit équipement et consommables d'exploitation (vaisselle, linge, produits
 # d'entretien) : une charge, par prudence, plutôt qu'une immobilisation
 _SUPPLIES = ["vaisselle", "porcelaine", "couverts", "ustensile", "linge", "draps", "serviette",
@@ -63,8 +70,9 @@ _SERVICES = ["installation", "mise en service", "formation"]
 for _code in ("215", "2154"):
     EXTRA_KEYWORDS.setdefault(_code, []).extend(_EQUIPMENT)
 EXTRA_KEYWORDS.setdefault("607", []).extend(_FOOD)
-EXTRA_KEYWORDS.setdefault("606", []).extend(_SUPPLIES)     # plan malgache
+EXTRA_KEYWORDS.setdefault("606", []).extend(_SUPPLIES + _MEDICAL_SUPPLIES)     # plan malgache
 EXTRA_KEYWORDS.setdefault("6063", []).extend(_SUPPLIES)    # plan français
+EXTRA_KEYWORDS.setdefault("6068", []).extend(_MEDICAL_SUPPLIES)  # plan français
 EXTRA_KEYWORDS.setdefault("604", []).extend(_SERVICES)
 # Mots courts qui sont aussi le début d'autres mots : à reconnaître en MOT ENTIER
 # (« four » ≠ « fournitures », « fournisseur » ; « sel » ≠ « sellerie » ; « riz »…)

@@ -61,3 +61,37 @@ def test_entry_is_split_by_nature_after_the_global_discount(ocr):
         "401": (0, Decimal("42451640.00")),
         "404": (0, Decimal("10725120.00")),   # 8 937 600 + 20 % de TVA
     }
+
+
+ERROR_PDF = PDF.with_name("facture_multitaux_erreur_tva.pdf")
+
+
+def test_vat_summary_row_computed_at_the_wrong_rate_is_flagged():
+    """Facture MS-2026-1187 : la ligne à 10 % du récapitulatif est calculée à 20 %
+    (1 323 080 au lieu de 661 540) ; TTC = HT + TVA imprimée reste vrai."""
+    entities = HybridExtractor(use_spacy=False).extract(read_pdf_text_layer(str(ERROR_PDF)), "fr")
+    warnings = [e for e in entities if e.entity_type == "VAT_RATE_MISMATCH"]
+    assert [Decimal(w.normalized_value) for w in warnings] == [Decimal("661540.00")]
+    assert "661 540 attendu" in warnings[0].raw_value
+    supplier = next(e for e in entities if e.entity_type == "SUPPLIER_NAME")
+    assert supplier.raw_value == "MediSoa Distribution SARL"   # sous l'en-tête « ÉMETTEUR »
+
+
+def test_correct_vat_summary_raises_no_warning(ocr):
+    entities = HybridExtractor(use_spacy=False).extract(ocr, "fr")
+    assert not [e for e in entities if e.entity_type == "VAT_RATE_MISMATCH"]
+
+
+def test_section_rate_applies_to_its_lines_and_medical_items_are_split():
+    lines = TableLineExtractor().extract(read_pdf_text_layer(str(ERROR_PDF)))
+    assert [l.vat_rate for l in lines] == [Decimal(r) for r in ("0", "0", "0", "20", "20", "20", "10", "10", "10")]
+    net = net_of_global_discount(lines, Decimal("58597700"), Decimal("1812300"))
+    assert sum((l.amount * l.vat_rate / 100).quantize(Decimal("0.01")) for l in net) == Decimal("8918180.00")
+    entry = _builder().build(lines=net, fallback_rule=SERVICES, fallback_account="615",
+                             total_vat=Decimal("9579720"), invoice_id=1, company_id=1,
+                             entry_date=date(2026, 11, 18), label="Facture MS-2026-1187")
+    debits = {l.account_code: l.debit for l in entry.lines if l.debit}
+    assert debits["606"] == Decimal("10699100.00")   # sérum, compresses, gants
+    assert debits["215"] == Decimal("41283200.00")   # moniteur, lits, autoclave
+    assert debits["615"] == Decimal("3104000.00")    # contrat de maintenance
+    assert debits["604"] == Decimal("3511400.00")    # installation, formation

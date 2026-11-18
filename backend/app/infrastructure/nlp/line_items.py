@@ -44,6 +44,7 @@ UNIT_RE = re.compile(
 # Intitulé de section dans le tableau : « A. Produits… », « 2) Prestations », « Sous-total »
 SECTION_TITLE_RE = re.compile(r"^\s*(?:[A-Z]|\d{1,2})[.)]\s+\S|.*\b(?:sous[\s-]*total|subtotal)\b",
                               re.IGNORECASE)
+SECTION_VAT_RE = re.compile(r"\b(?:t\.?v\.?a|vat)\b\D{0,4}(\d+(?:[.,]\d+)?)\s*%", re.IGNORECASE)
 SECTION_RE = re.compile(r"^\s*\d{1,2}\.\s+[A-Za-zÀ-ÿ]{3}")
 # « Page 1 of 2 », ou « … RCS 2006 B 00152 | Page 1 » en pied de page
 PAGE_FOOTER_RE = re.compile(r"\bpage\s+\d+\s*(?:(?:of|sur|/)\s*\d+|$)", re.IGNORECASE)
@@ -173,9 +174,22 @@ class TableLineExtractor(LineItemExtractor):
             explicit = bool(SECTION_TITLE_RE.match(line.description))
             return (count >= 2 or (count == 1 and explicit)) and _close(total, line.amount)
 
-        kept = [line for i, line in enumerate(lines)
-                if not (plain(line) and (is_group_total(line, range(i + 1, len(lines)))
-                                         or is_group_total(line, range(i - 1, -1, -1))))]
+        kept = []
+        for i, line in enumerate(lines):
+            if plain(line) and is_group_total(line, range(i + 1, len(lines))):
+                # Intitulé « B. Matériel médical (TVA 20 %) » : sans colonne TVA, le
+                # taux de la section vaut pour chacune de ses lignes
+                rate = SECTION_VAT_RE.search(line.description)
+                if rate:
+                    for j in range(i + 1, len(lines)):
+                        if plain(lines[j]):
+                            break
+                        if lines[j].vat_rate is None:
+                            lines[j].vat_rate = Decimal(rate.group(1).replace(",", "."))
+                continue
+            if plain(line) and is_group_total(line, range(i - 1, -1, -1)):
+                continue
+            kept.append(line)
         for no, line in enumerate(kept, start=1):
             line.line_no = no
         return kept

@@ -31,7 +31,7 @@ ROWS = [
 ]
 
 
-def _multi_line_pdf() -> bytes:
+def _multi_line_pdf(vat: str = "1 565,08 €", ttc: str = "9 515,48 €") -> bytes:
     buffer = io.BytesIO()
     pdf = canvas.Canvas(buffer, pagesize=A4)
     height = A4[1]
@@ -54,9 +54,9 @@ def _multi_line_pdf() -> bytes:
     text(380, 450, "Total HT")
     text(490, 450, "7 950,40 €")
     text(380, 470, "Total TVA")
-    text(490, 470, "1 565,08 €")
+    text(490, 470, vat)
     text(380, 490, "Total TTC")
-    text(490, 490, "9 515,48 €")
+    text(490, 490, ttc)
     pdf.save()
     return buffer.getvalue()
 
@@ -219,3 +219,20 @@ def test_two_page_multirate_invoice_with_global_discount_is_split(client, auth_h
     assert lines["215"] == (Decimal("8937600.00"), 0)    # plaques de cuisson, après remise de 2 %
     assert lines["607"] == (Decimal("12054000.00"), 0)   # denrées
     assert sum(d for d, _ in lines.values()) == sum(c for _, c in lines.values()) == Decimal("53176760.00")
+
+
+def test_vat_that_does_not_match_the_line_rates_is_flagged(client, auth_headers, french_company):
+    """Sans récapitulatif TVA : la TVA imprimée (1 600,00) ne correspond pas aux taux
+    des lignes (20 % de 7 825,40 = 1 565,08), alors que HT + TVA = TTC reste vrai."""
+    response = client.post("/api/invoices", headers=auth_headers, files={"file": (
+        "tva_fausse.pdf", _multi_line_pdf(vat="1 600,00 €", ttc="9 550,40 €"), "application/pdf")})
+    invoice_id = response.json()["id"]
+    entities = client.get(f"/api/invoices/{invoice_id}/entities", headers=auth_headers).json()
+    warnings = [e for e in entities if e["entity_type"] == "VAT_RATE_MISMATCH"]
+    assert len(warnings) == 1 and Decimal(warnings[0]["normalized_value"]) == Decimal("34.92")
+
+
+def test_correct_vat_raises_no_warning(client, auth_headers, french_company):
+    invoice_id = _upload(client, auth_headers)
+    entities = client.get(f"/api/invoices/{invoice_id}/entities", headers=auth_headers).json()
+    assert not [e for e in entities if e["entity_type"] == "VAT_RATE_MISMATCH"]

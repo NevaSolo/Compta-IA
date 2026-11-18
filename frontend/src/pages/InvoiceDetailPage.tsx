@@ -145,6 +145,11 @@ export function InvoiceDetailPage() {
                 Incohérence HT + TVA ≠ TTC — à vérifier
               </span>
             )}
+            {(entitiesQuery.data ?? []).some((e) => e.entity_type === "VAT_RATE_MISMATCH") && (
+              <span className="rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-medium text-red-700">
+                TVA incohérente avec les taux — à vérifier
+              </span>
+            )}
           </div>
         </div>
         <div className="grid grid-cols-2 gap-2 sm:flex">
@@ -260,6 +265,18 @@ export function InvoiceDetailPage() {
               <dt className="text-slate-500">Langue détectée</dt>
               <dd className="font-medium">{invoice.language ?? "—"}</dd>
             </dl>
+
+            {(entitiesQuery.data ?? [])
+              .filter((e) => e.entity_type === "VAT_RATE_MISMATCH")
+              .map((e, i) => (
+                <div key={i} className="mt-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+                  <p className="font-medium">Erreur de TVA probable sur la facture</p>
+                  <p className="mt-1">{e.raw_value}</p>
+                  <p className="mt-1 text-xs text-red-700">
+                    L'écriture reprend la TVA imprimée : vérifiez auprès du fournisseur avant de valider.
+                  </p>
+                </div>
+              ))}
 
             <PaymentInfo
               entities={entitiesQuery.data ?? []} totalTtc={invoice.total_ttc} currency={invoice.currency}

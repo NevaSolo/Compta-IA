@@ -97,6 +97,8 @@ EXCLUDED_ANCHORS = {
 }
 # Taux porté par un libellé de TVA : « TVA 10 % », « VAT @ 5.5% »
 RATE_IN_LABEL_RE = re.compile(r"(\d+(?:[.,]\d+)?)\s*%")
+# Première cellule d'une ligne du récapitulatif TVA : le taux seul (« 10 % »)
+SUMMARY_RATE_RE = re.compile(r"^\s*(\d+(?:[.,]\d+)?)\s*%\s*$")
 TAX_LABEL_RE = re.compile(r"\s*(?:t\.?v\.?a|vat|tax|taxe)\b", re.IGNORECASE)
 TOLERANCE = Decimal("0.02")  # écart d'arrondi toléré entre HT + TVA et TTC
 
@@ -130,6 +132,10 @@ CURRENCY_RE = re.compile(r"(?<![A-Za-z])(ariary|mga|ar|eur|usd|gbp|chf)(?![A-Za-
 SUPPLIER_LABEL_RE = re.compile(
     r"^\s*(?:vendeur|fournisseur|[ée]metteur|[ée]mise\s+par|seller|supplier|vendor|issued\s+by)"
     r"\s*[:：]\s*(?P<value>.*)$", re.IGNORECASE)
+# Intitulé de cadre seul sur sa ligne (« ÉMETTEUR »), le nom étant écrit dessous
+SUPPLIER_HEADING_RE = re.compile(
+    r"^\s*(?:vendeur|fournisseur|[ée]metteur|seller|supplier|vendor|issued\s+by|from)\s*[:：]?\s*$",
+    re.IGNORECASE)
 
 DOCUMENT_TITLE_PATTERNS = [
     r"^factures?\b", r"\bavoir\b", r"note\s*de\s*cr[ée]dit", r"credit\s*note",
@@ -234,6 +240,12 @@ def _matches_any(text: str, patterns: list[str]) -> bool:
     return any(re.search(p, lowered) for p in patterns)
 
 
+def _fmt(value: Decimal) -> str:
+    """1323080 → « 1 323 080 » ; 1234.5 → « 1 234,50 » (lisible par le comptable)."""
+    text = f"{value:,.0f}" if value == value.to_integral_value() else f"{value:,.2f}"
+    return text.replace(",", " ").replace(".", ",")
+
+
 def _visual_lines(blocks: list[OcrBlock]) -> list[list[OcrBlock]]:
     """Regroupe les blocs en lignes visuelles (de gauche à droite).
 
@@ -301,6 +313,7 @@ class HybridExtractor(EntityExtractor):
                            confidence=b.confidence) for b in ocr_result.blocks]
         entities: list[ExtractedEntity] = []
         entities += self._extract_amounts(blocks)
+        entities += self._check_vat_summary(blocks)
         entities += self._extract_informative_amounts(blocks)
         entities += self._extract_identifiers(blocks)
         entities += self._extract_date(blocks)
@@ -460,6 +473,39 @@ class HybridExtractor(EntityExtractor):
             candidates = [_Candidate("0", "0.00", Decimal("0"), exempt_anchors[0],
                                      exempt_anchors[0].confidence, 0, exempt=True)]
         return candidates
+
+    @staticmethod
+    def _check_vat_summary(blocks: list[OcrBlock]) -> list[ExtractedEntity]:
+        """Récapitulatif TVA (« 10 % | 6 615 400 | 1 323 080 ») : chaque montant de
+        TVA doit valoir base × taux. Une erreur de taux passe inaperçue autrement :
+        le TTC imprimé reste égal à HT + TVA imprimée, l'écriture est équilibrée.
+        Cas réel : la ligne à 10 % calculée à 20 % (1 323 080 au lieu de 661 540)."""
+        found = []
+        for line in _visual_lines(blocks):
+            rate = SUMMARY_RATE_RE.match(line[0].text) if line else None
+            if not rate:
+                continue
+            numbers = []
+            for block in line[1:]:   # cellules numériques qui suivent le taux
+                amounts = AMOUNT_RE.findall(block.text)
+                if not amounts or re.search(r"[A-Za-zÀ-ÿ]{3}", block.text):
+                    break
+                numbers.append(normalize_amount(amounts[-1]))
+            if len(numbers) < 2 or None in numbers[:2]:
+                continue
+            base, vat = Decimal(numbers[0]), Decimal(numbers[-1])
+            pct = Decimal(rate.group(1).replace(",", "."))
+            expected = (base * pct / 100).quantize(Decimal("0.01"))
+            if abs(vat - expected) > max(Decimal("1"), expected * Decimal("0.001")):
+                found.append(ExtractedEntity(
+                    entity_type="VAT_RATE_MISMATCH",
+                    raw_value=(f"TVA à {rate.group(1)} % : {_fmt(vat)} imprimé, {_fmt(expected)} attendu "
+                               f"(base {_fmt(base)} × {rate.group(1)} %)"),
+                    normalized_value=f"{vat - expected:.2f}",
+                    confidence=round(min(b.confidence for b in line), 4),
+                    method=ExtractionMethod.REGEX,
+                    source_block={"bbox": line[0].bbox, "text": " | ".join(b.text for b in line)}))
+        return found
 
     def _extract_informative_amounts(self, blocks: list[OcrBlock]) -> list[ExtractedEntity]:
         """Acompte déjà versé, escompte : à porter à la connaissance du comptable
@@ -678,6 +724,25 @@ class HybridExtractor(EntityExtractor):
                     entity_type="SUPPLIER_NAME", raw_value=value, normalized_value=value.upper(),
                     confidence=round(confidence * 0.9, 4), method=ExtractionMethod.REGEX,
                     source_block={"bbox": source.bbox, "text": source.text})
+        # En-tête de cadre sans « : » (« ÉMETTEUR », le nom sur la ligne du dessous) :
+        # le premier bloc sous l'en-tête, dans la même colonne
+        for label in blocks:
+            if not SUPPLIER_HEADING_RE.match(label.text):
+                continue
+            x0 = min(pt[0] for pt in label.bbox)
+            below = [b for b in blocks if b is not label
+                     and 0 < _block_center_y(b) - _block_center_y(label) <= _block_height(label) * 4
+                     and abs(min(pt[0] for pt in b.bbox) - x0) <= _block_height(label) * 2]
+            below.sort(key=_block_center_y)
+            for other in below[:1]:
+                text = other.text.strip()
+                if len(text) >= 3 and sum(c.isalpha() for c in text) >= 2 \
+                        and not _matches_any(text, DOCUMENT_TITLE_PATTERNS):
+                    return ExtractedEntity(
+                        entity_type="SUPPLIER_NAME", raw_value=text, normalized_value=text.upper(),
+                        confidence=round(min(label.confidence, other.confidence) * 0.9, 4),
+                        method=ExtractionMethod.REGEX,
+                        source_block={"bbox": other.bbox, "text": other.text})
         return None
 
     def _get_nlp(self, language: str | None):
