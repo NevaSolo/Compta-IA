@@ -128,3 +128,35 @@ def test_credit_note_reverses_every_side():
     lines = _build([L(1, "Honoraires", "500.00"), L(2, "Ordinateur portable", "500.00")], Decimal("200"),
                    reverse_sides=True)
     assert lines["622"] == (0, Decimal("500.00")) and lines["404"] == (Decimal("600.00"), 0)
+
+
+# Facture FV-2024-0150 (restaurant) : matériel de cuisine + denrées, deux taux de TVA
+FV_0150 = [
+    L(1, "MAT-INOX4 Plan de travail inox brossé 2000x600mm", "1780.00"),
+    L(2, "FOUR-PRO Four mixte professionnel 6 niveaux GN1/1", "3910.00"),
+    L(3, "HUILE-OL5 Huile d'olive vierge extra bidon 5L", "1155.00", "5.5"),
+    L(4, "FARINE-T55 Farine de blé T55 sac 25kg", "497.50", "5.5"),
+]
+IMMO = MG_RULES[2]
+
+
+def test_kitchen_equipment_is_capitalised_and_food_is_a_purchase():
+    entry = _builder().build(
+        lines=FV_0150, fallback_rule=IMMO, fallback_account="218", total_vat=Decimal("1228.89"),
+        invoice_id=1, company_id=1, entry_date=date(2024, 9, 6), label="Facture FV-2024-0150")
+    assert {l.account_code: (l.debit, l.credit) for l in entry.lines} == {
+        "215": (Decimal("5690.00"), 0),     # plan de travail + four
+        "607": (Decimal("1652.50"), 0),     # huile + farine
+        "4456": (Decimal("1228.89"), 0),    # 20 % × 5 690,00 + 5,5 % × 1 652,50
+        "404": (0, Decimal("6828.00")),     # matériel : 5 690,00 + 1 138,00
+        "401": (0, Decimal("1743.39")),     # denrées : 1 652,50 + 90,89
+    }
+
+
+def test_short_keywords_match_whole_words_only():
+    from app.infrastructure.rules.line_entry import _hits
+    assert _hits(["four"], "four mixte") == 1
+    assert _hits(["four"], "fours a pizza") == 1
+    assert _hits(["four"], "fournitures de bureau") == 0
+    assert _hits(["four"], "fournisseur") == 0
+    assert _hits(["sel"], "sellerie") == 0

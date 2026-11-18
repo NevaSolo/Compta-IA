@@ -45,6 +45,20 @@ EXTRA_KEYWORDS: dict[str, list[str]] = {
     "6231": ["publicitaire", "campagne"],
     "6261": ["postaux", "poste"],
 }
+# Matériel professionnel (cuisine, atelier) et denrées alimentaires : mêmes
+# mots-clés pour les deux plans (215 / 2154 : matériel ; 607 : marchandises).
+_EQUIPMENT = ["four", "plan de travail", "chambre froide", "refrigerateur", "congelateur", "friteuse",
+              "lave-vaisselle", "hotte", "piano de cuisson", "materiel de cuisine", "equipement de cuisine",
+              "machine", "groupe electrogene", "compresseur", "outillage", "materiel industriel"]
+_FOOD = ["denree", "alimentaire", "huile", "farine", "sucre", "riz", "lait", "beurre", "oeuf", "fromage",
+         "viande", "poisson", "volaille", "poulet", "legume", "fruit", "epice", "conserve", "boisson",
+         "cafe", "vin", "biere", "levure", "sel"]
+for _code in ("215", "2154"):
+    EXTRA_KEYWORDS.setdefault(_code, []).extend(_EQUIPMENT)
+EXTRA_KEYWORDS.setdefault("607", []).extend(_FOOD)
+# Mots courts qui sont aussi le début d'autres mots : à reconnaître en MOT ENTIER
+# (« four » ≠ « fournitures », « fournisseur » ; « sel » ≠ « sellerie » ; « riz »…)
+WHOLE_WORDS = {"four", "riz", "sel", "vin", "lait", "cafe", "hotte", "fruit", "machine"}
 # Abonnement, location, maintenance… : une charge, jamais une immobilisation,
 # même si la ligne mentionne un logiciel ou un matériel.
 CHARGE_ONLY_RE = re.compile(r"\b(?:abonnement|location|loyer|maintenance|support|redevance|forfait mensuel"
@@ -61,8 +75,10 @@ def _normalize(text: str) -> str:
 def _hits(keywords: list[str], text: str) -> int:
     """Mots-clés présents EN DÉBUT DE MOT : « eau » ne se trouve ni dans « bureau »
     ni dans « réseaux » (faux positifs d'une recherche de sous-chaîne)."""
-    return sum(1 for kw in {_normalize(k) for k in keywords}
-               if re.search(rf"(?<![{_WORD_CHARS}]){re.escape(kw)}", text))
+    def pattern(kw: str) -> str:
+        end = rf"s?(?![{_WORD_CHARS}])" if kw in WHOLE_WORDS else ""  # pluriel admis : « fours »
+        return rf"(?<![{_WORD_CHARS}]){re.escape(kw)}{end}"
+    return sum(1 for kw in {_normalize(k) for k in keywords} if re.search(pattern(kw), text))
 
 
 @dataclass
