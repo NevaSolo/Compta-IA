@@ -44,6 +44,10 @@ class Settings(BaseSettings):
     line_level_entries: bool = True
     fixed_asset_min_amount: float = 0.0
 
+    # Taux de TVA admis (en %) : un autre taux bloque la génération de l'écriture.
+    # Madagascar : 20 et 0 ; 10 (taux d'exemple des factures de test) ; France : 5,5 et 2,1.
+    allowed_vat_rates: str = "0,2.1,5.5,10,20"
+
     # Réentraînement
     retrain_correction_threshold: int = 50
 

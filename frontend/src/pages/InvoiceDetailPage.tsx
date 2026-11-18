@@ -145,9 +145,14 @@ export function InvoiceDetailPage() {
                 Incohérence HT + TVA ≠ TTC — à vérifier
               </span>
             )}
-            {(entitiesQuery.data ?? []).some((e) => e.entity_type === "VAT_RATE_MISMATCH") && (
+            {(entitiesQuery.data ?? []).some((e) => e.entity_type === "CONTROL_BLOCKING") && (
               <span className="rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-medium text-red-700">
-                TVA incohérente avec les taux — à vérifier
+                Contrôle bloquant — écriture non générée
+              </span>
+            )}
+            {(entitiesQuery.data ?? []).some((e) => e.entity_type === "CONTROL_WARNING") && (
+              <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800">
+                Alerte — à vérifier avant validation
               </span>
             )}
           </div>
@@ -215,7 +220,8 @@ export function InvoiceDetailPage() {
         <ExchangeRateBox invoice={invoice} baseCurrency={user.company_currency ?? "MGA"} />
       )}
 
-      {invoice.status === "ERROR" && !(foreignCurrency && !invoice.exchange_rate) && (
+      {invoice.status === "ERROR" && !(foreignCurrency && !invoice.exchange_rate)
+        && !(entitiesQuery.data ?? []).some((e) => e.entity_type === "CONTROL_BLOCKING") && (
         <p className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">
           {invoice.error_message ?? "Le traitement a échoué."}
         </p>
@@ -266,17 +272,7 @@ export function InvoiceDetailPage() {
               <dd className="font-medium">{invoice.language ?? "—"}</dd>
             </dl>
 
-            {(entitiesQuery.data ?? [])
-              .filter((e) => e.entity_type === "VAT_RATE_MISMATCH")
-              .map((e, i) => (
-                <div key={i} className="mt-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">
-                  <p className="font-medium">Erreur de TVA probable sur la facture</p>
-                  <p className="mt-1">{e.raw_value}</p>
-                  <p className="mt-1 text-xs text-red-700">
-                    L'écriture reprend la TVA imprimée : vérifiez auprès du fournisseur avant de valider.
-                  </p>
-                </div>
-              ))}
+            <ControlResults entities={entitiesQuery.data ?? []} />
 
             <PaymentInfo
               entities={entitiesQuery.data ?? []} totalTtc={invoice.total_ttc} currency={invoice.currency}
@@ -552,6 +548,36 @@ function EntryPanel({
             disabled={!isBalanced || dirty || validateMutation.isPending}
             className="btn-success"
           >Valider définitivement</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Contrôles de la facture : BLOQUANT (écriture non générée) ou ALERTE (à vérifier). */
+function ControlResults({ entities }: { entities: { entity_type: string; raw_value: string }[] }) {
+  const blocking = entities.filter((e) => e.entity_type === "CONTROL_BLOCKING");
+  const warnings = entities.filter((e) => e.entity_type === "CONTROL_WARNING");
+  if (blocking.length === 0 && warnings.length === 0) return null;
+  return (
+    <div className="mt-3 space-y-2">
+      {blocking.length > 0 && (
+        <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+          <p className="font-medium">Contrôles bloquants : l'écriture n'a pas été générée</p>
+          <ul className="mt-1 list-disc space-y-0.5 pl-5">
+            {blocking.map((e, i) => <li key={i}>{e.raw_value}</li>)}
+          </ul>
+          <p className="mt-1 text-xs text-red-700">
+            Faites corriger la facture par le fournisseur, puis relancez le traitement, ou rejetez-la.
+          </p>
+        </div>
+      )}
+      {warnings.length > 0 && (
+        <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+          <p className="font-medium">Alertes : à vérifier avant de valider</p>
+          <ul className="mt-1 list-disc space-y-0.5 pl-5">
+            {warnings.map((e, i) => <li key={i}>{e.raw_value}</li>)}
+          </ul>
         </div>
       )}
     </div>

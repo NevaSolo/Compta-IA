@@ -117,6 +117,7 @@ class TableLineExtractor(LineItemExtractor):
         blocks = [OcrBlock(text=_fix_numeric_ocr_errors(b.text), bbox=b.bbox,
                            confidence=b.confidence) for b in ocr_result.blocks]
         lines: list[InvoiceLine] = []
+        self.section_anomalies: list[tuple[str, Decimal, Decimal]] = []
         in_table = False
         amount_left = 0.0
         visual_lines = _visual_lines(blocks)
@@ -153,42 +154,46 @@ class TableLineExtractor(LineItemExtractor):
                 lines[-1].description = f"{lines[-1].description} {text.strip()}"[:500]
         return self._drop_subtotals(lines)
 
-    @staticmethod
-    def _drop_subtotals(lines: list[InvoiceLine]) -> list[InvoiceLine]:
+    def _drop_subtotals(self, lines: list[InvoiceLine]) -> list[InvoiceLine]:
         """Intitulés de section (« B. Équipements (TVA 20 %)  27 800 000 ») et
         sous-totaux : une ligne sans quantité ni prix dont le montant est la somme
-        des lignes qui la suivent (intitulé) ou qui la précèdent (sous-total), jusqu'à
-        la ligne de même nature voisine. Les garder compterait ces montants deux fois."""
+        des lignes qui la suivent (intitulé) ou qui la précèdent (sous-total). Les
+        garder compterait ces montants deux fois. Un intitulé EXPLICITE (« A. … »)
+        est retiré même si son montant est faux : l'écart est noté dans
+        `self.section_anomalies` (sous-total ≠ somme des lignes, contrôle bloquant)."""
         def plain(line: InvoiceLine) -> bool:
             return line.quantity is None and line.unit_price is None
 
-        def is_group_total(line: InvoiceLine, indices) -> bool:
-            total, count = Decimal("0"), 0
+        def group(indices) -> list[int]:
+            members = []
             for j in indices:
                 if plain(lines[j]):
                     break
-                total += lines[j].amount
-                count += 1
-            # Une seule ligne de même montant ne suffit pas (« Forfait 500 » puis une
-            # ligne à 500) : il faut un intitulé de section explicite
-            explicit = bool(SECTION_TITLE_RE.match(line.description))
-            return (count >= 2 or (count == 1 and explicit)) and _close(total, line.amount)
+                members.append(j)
+            return members
+
+        def total(members) -> Decimal:
+            return sum((lines[j].amount for j in members), Decimal("0"))
 
         kept = []
         for i, line in enumerate(lines):
-            if plain(line) and is_group_total(line, range(i + 1, len(lines))):
-                # Intitulé « B. Matériel médical (TVA 20 %) » : sans colonne TVA, le
-                # taux de la section vaut pour chacune de ses lignes
-                rate = SECTION_VAT_RE.search(line.description)
-                if rate:
-                    for j in range(i + 1, len(lines)):
-                        if plain(lines[j]):
-                            break
-                        if lines[j].vat_rate is None:
+            if plain(line):
+                explicit = bool(SECTION_TITLE_RE.match(line.description))
+                after, before = group(range(i + 1, len(lines))), group(range(i - 1, -1, -1))
+                matches_after = (len(after) >= 2 or (after and explicit)) and _close(total(after), line.amount)
+                matches_before = (len(before) >= 2 or (before and explicit)) and _close(total(before), line.amount)
+                if matches_after or (explicit and after and not matches_before):
+                    # Intitulé de section : son taux (« (TVA 20 %) ») vaut pour ses lignes
+                    rate = SECTION_VAT_RE.search(line.description)
+                    for j in after:
+                        if rate and lines[j].vat_rate is None:
                             lines[j].vat_rate = Decimal(rate.group(1).replace(",", "."))
-                continue
-            if plain(line) and is_group_total(line, range(i - 1, -1, -1)):
-                continue
+                    if not matches_after:
+                        self.section_anomalies.append(
+                            (line.description, line.amount, total(after)))
+                    continue
+                if matches_before:
+                    continue
             kept.append(line)
         for no, line in enumerate(kept, start=1):
             line.line_no = no
@@ -206,7 +211,10 @@ class TableLineExtractor(LineItemExtractor):
             line = visual_lines[index + size - 1]
             if self._has_amount(line):
                 return 0
-            text += " " + " ".join(b.text for b in line)
+            line_text = " ".join(b.text for b in line)
+            if size == 1 and not (HEADER_DESC_RE.search(line_text) or HEADER_NUM_RE.search(line_text)):
+                return 0  # un en-tête commence par un intitulé de colonne (pas « MVola : 034… »)
+            text += " " + line_text
             if HEADER_DESC_RE.search(text) and HEADER_NUM_RE.search(text):
                 return size
         return 0

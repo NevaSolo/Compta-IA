@@ -61,6 +61,16 @@ MONTHS = {  # fr / en / mg
 # (« 17 / 08 » + « 2026 ») puis rejointes par un simple espace : séparateurs
 # optionnels, année à 4 chiffres obligatoire pour limiter les faux positifs.
 DATE_SPLIT_RE = re.compile(r"(?<!\d)(\d{1,2})\s*[/\-.]?\s*(\d{1,2})\s*[/\-.]?\s*(20\d{2})(?!\d)")
+# Étiquettes de la date d'émission (bloc seul, ou suivi de la date)
+ISSUE_LABEL_RE = re.compile(
+    r"^\s*(?:date\s*d['’]?\s*[ée]mission|date\s*de\s*(?:la\s*)?facture|invoice\s*date|date)\s*[:：]?\s*$"
+    r"|(?:date\s*d['’]?\s*[ée]mission|date\s*de\s*(?:la\s*)?facture|invoice\s*date|[ée]mise?\s+le)\s*[:：]?",
+    re.IGNORECASE)
+DUE_LABEL_RE = re.compile(r"[ée]ch[ée]ance(?:\s*de\s*paiement)?|due\s*date|date\s*limite", re.IGNORECASE)
+# Dates qui ne sont pas la date de facture
+OTHER_DATE_CONTEXT_RE = re.compile(
+    r"acompte|livraison|[ée]ch[ée]ance|commande|devis|contrat|march[ée]\s+du|avant\s+le|due\s*date"
+    r"|delivery|\bvol\b|cargo|p[ée]riode", re.IGNORECASE)
 TEXT_DATE_RE = re.compile(r"(?<!\d)(\d{1,2})\s+([A-Za-zÀ-ÿ]+)\.?\s+(\d{4})(?!\d)")
 # Mention d'exonération de TVA : « TVA non applicable, art. 293 B du CGI »,
 # « VAT exempt », « exonéré de TVA ». Le nombre qui l'accompagne (ici un
@@ -97,6 +107,44 @@ EXCLUDED_ANCHORS = {
 }
 # Taux porté par un libellé de TVA : « TVA 10 % », « VAT @ 5.5% »
 RATE_IN_LABEL_RE = re.compile(r"(\d+(?:[.,]\d+)?)\s*%")
+# Montant en lettres : « … à la somme de : Cent onze millions … Ariary »
+WORDS_START_RE = re.compile(r"somme\s+de\s*[:：]?|montant\s+de\s*[:：]|amount\s+of\s*[:：]?", re.IGNORECASE)
+WORDS_END_RE = re.compile(r"\b(?:ariary|euros?|dollars?|francs?)\b|\(", re.IGNORECASE)
+_WORD_VALUES = {
+    "zero": 0, "un": 1, "une": 1, "deux": 2, "trois": 3, "quatre": 4, "cinq": 5, "six": 6, "sept": 7,
+    "huit": 8, "neuf": 9, "dix": 10, "onze": 11, "douze": 12, "treize": 13, "quatorze": 14,
+    "quinze": 15, "seize": 16, "vingt": 20, "vingts": 20, "trente": 30, "quarante": 40,
+    "cinquante": 50, "soixante": 60, "septante": 70, "huitante": 80, "octante": 80, "nonante": 90,
+}
+
+
+def french_words_to_number(text: str) -> int | None:
+    """« Cent onze millions sept cent cinquante-quatre mille huit cents » → 111 754 800.
+    Les mots inconnus (« et », un logo lu au passage) sont ignorés ; None si aucun nombre."""
+    import unicodedata
+    plain = "".join(c for c in unicodedata.normalize("NFKD", text.lower()) if not unicodedata.combining(c))
+    total, current, seen = 0, 0, False
+    for word in re.split(r"[\s\-]+", plain):
+        word = word.strip(".,;:()")
+        if word in _WORD_VALUES:
+            value = _WORD_VALUES[word]
+            if value == 20 and current % 100 == 4:
+                current += 76          # quatre-vingt(s) = 80
+            else:
+                current += value
+            seen = True
+        elif word in ("cent", "cents"):
+            current = (current or 1) * 100
+            seen = True
+        elif word == "mille":
+            total += (current or 1) * 1000
+            current, seen = 0, True
+        elif word in ("million", "millions", "milliard", "milliards"):
+            total += (current or 1) * (10**9 if word.startswith("milliard") else 10**6)
+            current, seen = 0, True
+    return total + current if seen else None
+
+
 # Première cellule d'une ligne du récapitulatif TVA : le taux seul (« 10 % »)
 SUMMARY_RATE_RE = re.compile(r"^\s*(\d+(?:[.,]\d+)?)\s*%\s*$")
 TAX_LABEL_RE = re.compile(r"\s*(?:t\.?v\.?a|vat|tax|taxe)\b", re.IGNORECASE)
@@ -110,6 +158,8 @@ INFO_ANCHORS = {
     # Remise globale (« Remise sur volume (2 %)  -958 400 ») : déjà déduite du HT,
     # elle sert à rapprocher la somme des lignes (avant remise) du Total HT
     "GLOBAL_DISCOUNT": r"remise|rabais|ristourne|\bdiscount\b",
+    # Total avant remise globale : contrôles HT brut = somme des lignes, HT = brut − remise
+    "GROSS_TOTAL_HT": r"h\.?\s*t\.?\s*brut|total\s*brut|avant\s*remise|gross\s*(?:sub)?total",
 }
 SIGNED_INFO = {"EARLY_PAYMENT_DISCOUNT", "GLOBAL_DISCOUNT"}
 # Un « net à payer » assorti d'un escompte est conditionnel : on ne le retient pas.
@@ -317,6 +367,7 @@ class HybridExtractor(EntityExtractor):
         entities += self._extract_informative_amounts(blocks)
         entities += self._extract_identifiers(blocks)
         entities += self._extract_date(blocks)
+        entities += self._extract_due_date(blocks)
         entities += self._extract_currency(
             blocks, preferred=[e.source_block["text"] for e in entities
                                if e.entity_type in ("TOTAL_TTC", "TOTAL_HT")])
@@ -479,8 +530,10 @@ class HybridExtractor(EntityExtractor):
         """Récapitulatif TVA (« 10 % | 6 615 400 | 1 323 080 ») : chaque montant de
         TVA doit valoir base × taux. Une erreur de taux passe inaperçue autrement :
         le TTC imprimé reste égal à HT + TVA imprimée, l'écriture est équilibrée.
-        Cas réel : la ligne à 10 % calculée à 20 % (1 323 080 au lieu de 661 540)."""
-        found = []
+        Cas réel : la ligne à 10 % calculée à 20 % (1 323 080 au lieu de 661 540).
+        Émet aussi les totaux du récapitulatif (somme des bases, des TVA, taux lus)
+        pour les contrôles « bases = Total HT » et « TVA du récapitulatif = TVA totale »."""
+        found, rows = [], []
         for line in _visual_lines(blocks):
             rate = SUMMARY_RATE_RE.match(line[0].text) if line else None
             if not rate:
@@ -495,6 +548,7 @@ class HybridExtractor(EntityExtractor):
                 continue
             base, vat = Decimal(numbers[0]), Decimal(numbers[-1])
             pct = Decimal(rate.group(1).replace(",", "."))
+            rows.append((pct, base, vat, line))
             expected = (base * pct / 100).quantize(Decimal("0.01"))
             if abs(vat - expected) > max(Decimal("1"), expected * Decimal("0.001")):
                 found.append(ExtractedEntity(
@@ -505,6 +559,19 @@ class HybridExtractor(EntityExtractor):
                     confidence=round(min(b.confidence for b in line), 4),
                     method=ExtractionMethod.REGEX,
                     source_block={"bbox": line[0].bbox, "text": " | ".join(b.text for b in line)}))
+        if rows:
+            source = {"bbox": rows[0][3][0].bbox, "text": "RÉCAPITULATIF TVA"}
+            confidence = round(min(b.confidence for r in rows for b in r[3]), 4)
+            for entity_type, value in (
+                    ("VAT_SUMMARY_BASES", sum((r[1] for r in rows), Decimal("0"))),
+                    ("VAT_SUMMARY_VAT", sum((r[2] for r in rows), Decimal("0")))):
+                found.append(ExtractedEntity(entity_type=entity_type, raw_value=_fmt(value),
+                                             normalized_value=f"{value:.2f}", confidence=confidence,
+                                             method=ExtractionMethod.REGEX, source_block=source))
+            rates = ";".join(f"{r[0].normalize():f}" for r in rows)
+            found.append(ExtractedEntity(entity_type="VAT_SUMMARY_RATES", raw_value=rates,
+                                         normalized_value=rates, confidence=confidence,
+                                         method=ExtractionMethod.REGEX, source_block=source))
         return found
 
     def _extract_informative_amounts(self, blocks: list[OcrBlock]) -> list[ExtractedEntity]:
@@ -539,10 +606,46 @@ class HybridExtractor(EntityExtractor):
                             confidence=round(min(anchor.confidence, other.confidence), 4),
                             method=ExtractionMethod.REGEX,
                             source_block={"bbox": other.bbox, "text": other.text})
+                        # « Remise commerciale (5 %) » : le pourcentage annoncé, pour
+                        # contrôler montant = pourcentage × base
+                        rate = RATE_IN_LABEL_RE.search(anchor.text)
+                        if entity_type == "GLOBAL_DISCOUNT" and rate:
+                            found.append(ExtractedEntity(
+                                entity_type="GLOBAL_DISCOUNT_RATE", raw_value=rate.group(0),
+                                normalized_value=rate.group(1).replace(",", "."),
+                                confidence=entity.confidence, method=ExtractionMethod.REGEX,
+                                source_block={"bbox": anchor.bbox, "text": anchor.text}))
                         break
             if entity:
                 found.append(entity)
+        words = self._amount_in_words(blocks)
+        if words:
+            found.append(words)
         return found
+
+    @staticmethod
+    def _amount_in_words(blocks: list[OcrBlock]) -> ExtractedEntity | None:
+        """« Arrêtée la présente facture à la somme de : Cent onze millions … Ariary » :
+        le montant en lettres, converti en chiffres (contrôle lettres = chiffres).
+        Le texte peut s'étendre sur plusieurs blocs et lignes."""
+        ordered = [b for line in _visual_lines(blocks) for b in line]
+        for index, block in enumerate(ordered):
+            start = WORDS_START_RE.search(block.text)
+            if not start:
+                continue
+            text = block.text[start.end():]
+            for other in ordered[index + 1:index + 8]:
+                if WORDS_END_RE.search(text):
+                    break
+                text += " " + other.text
+            end = WORDS_END_RE.search(text)
+            value = french_words_to_number(text[:end.start()] if end else text)
+            if value is not None:
+                return ExtractedEntity(
+                    entity_type="AMOUNT_IN_WORDS", raw_value=text[:end.start() if end else 200].strip(),
+                    normalized_value=str(value), confidence=round(block.confidence, 4),
+                    method=ExtractionMethod.REGEX, source_block={"bbox": block.bbox, "text": block.text})
+        return None
 
     # -------------------------------------------- NIF / STAT / n° facture
     def _extract_identifiers(self, blocks: list[OcrBlock]) -> list[ExtractedEntity]:
@@ -579,7 +682,65 @@ class HybridExtractor(EntityExtractor):
         return entities
 
     # -------------------------------------------------------------- Date
+    def _labelled_date(self, blocks: list[OcrBlock], label_re: re.Pattern) -> tuple | None:
+        """Date rattachée à une étiquette : dans le même bloc après l'étiquette
+        (« Émise le 18/11/2026 »), dans le bloc voisin de droite (« Échéance | 18/12/2026 »),
+        ou sous un en-tête de colonne (« Facture n° | Date | Échéance » puis les valeurs)."""
+        def first_date(text: str):
+            for regex in DATE_RES:
+                for match in regex.finditer(text):
+                    parsed = self._parse_date(match)
+                    if parsed:
+                        return parsed, match.group(0)
+            return None
+
+        for label in sorted(blocks, key=_block_center_y):
+            match = label_re.search(label.text)
+            if not match:
+                continue
+            found = first_date(label.text[match.end():])
+            if found:
+                return found + (label,)
+            right = sorted((b for b in blocks if b is not label and _same_visual_line(label, b)
+                            and _block_center_x(b) > _block_center_x(label)), key=_block_center_x)
+            if right:
+                found = first_date(right[0].text)
+                if found:
+                    return found + (right[0],)
+            x0, x1 = min(pt[0] for pt in label.bbox), max(pt[0] for pt in label.bbox)
+            below = sorted((b for b in blocks if b is not label
+                            and 0 < _block_center_y(b) - _block_center_y(label) <= _block_height(label) * 3
+                            and x0 - _block_height(label) <= _block_center_x(b) <= x1 + _block_height(label) * 3),
+                           key=_block_center_y)
+            for other in below[:2]:
+                found = first_date(other.text)
+                if found:
+                    return found + (other,)
+        return None
+
+    def _extract_due_date(self, blocks: list[OcrBlock]) -> list[ExtractedEntity]:
+        found = self._labelled_date(blocks, DUE_LABEL_RE)
+        if not found:
+            return []
+        parsed, raw, block = found
+        return [ExtractedEntity(entity_type="DUE_DATE", raw_value=raw,
+                                normalized_value=parsed.strftime("%Y-%m-%d"),
+                                confidence=round(block.confidence, 4), method=ExtractionMethod.REGEX,
+                                source_block={"bbox": block.bbox, "text": block.text})]
+
     def _extract_date(self, blocks: list[OcrBlock]) -> list[ExtractedEntity]:
+        # 1) date d'émission désignée explicitement (« Date d'émission », « Émise le »,
+        #    en-tête de colonne « Date ») : plus sûre que l'heuristique « la plus ancienne »,
+        #    qui prenait la date de l'acompte ou de livraison
+        labelled = self._labelled_date(blocks, ISSUE_LABEL_RE)
+        if labelled:
+            parsed, raw, block = labelled
+            if abs((parsed - datetime.now()).days) < 730:
+                return [ExtractedEntity(entity_type="INVOICE_DATE", raw_value=raw,
+                                        normalized_value=parsed.strftime("%Y-%m-%d"),
+                                        confidence=round(block.confidence, 4),
+                                        method=ExtractionMethod.REGEX,
+                                        source_block={"bbox": block.bbox, "text": block.text})]
         candidates: list[tuple[datetime, OcrBlock, bool, str]] = []
         # Unités de recherche : chaque bloc, plus chaque ligne visuelle
         # reconstituée (une date découpée par l'OCR en « 17 / 08 » + « 2026 »
@@ -593,7 +754,14 @@ class HybridExtractor(EntityExtractor):
                     text=" ".join(b.text for b in line),
                     bbox=[[min(xs), min(ys)], [max(xs), min(ys)], [max(xs), max(ys)], [min(xs), max(ys)]],
                     confidence=min(b.confidence for b in line)))
-        for block in units:
+        # Date d'acompte, de livraison, d'échéance, de commande… : écartée, sauf si
+        # la facture n'en porte aucune autre
+        units = ([u for u in units if not OTHER_DATE_CONTEXT_RE.search(u.text)]
+                 + [u for u in units if OTHER_DATE_CONTEXT_RE.search(u.text)])
+        others_from = sum(1 for u in units if not OTHER_DATE_CONTEXT_RE.search(u.text))
+        for index, block in enumerate(units):
+            if index >= others_from and candidates:
+                break
             near_anchor = _matches_any(block.text, ANCHORS["DATE"])
             for regex in DATE_RES + [DATE_SPLIT_RE]:
                 for match in regex.finditer(block.text):
@@ -689,7 +857,10 @@ class HybridExtractor(EntityExtractor):
             text = block.text.strip()
             if (len(text) >= 4 and sum(c.isalpha() for c in text) >= 3
                     and not _matches_any(text, sum(ANCHORS.values(), []))
-                    and not AMOUNT_RE.fullmatch(text)):
+                    and not AMOUNT_RE.fullmatch(text)
+                    # « Émise le 18/11/2026 », « Échéance : … » : pas un nom de société
+                    and not any(r.search(text) for r in DATE_RES)
+                    and not ISSUE_LABEL_RE.search(text) and not DUE_LABEL_RE.search(text)):
                 return ExtractedEntity(
                     entity_type="SUPPLIER_NAME", raw_value=text,
                     normalized_value=text.upper(),

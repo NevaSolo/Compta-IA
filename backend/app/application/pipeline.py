@@ -20,6 +20,7 @@ from app.domain.ports import (
     ExchangeRateRepository, InvoiceRepository, LineItemExtractor, OcrResult, RuleRepository,
     SupplierRepository,
 )
+from app.domain.controls import BLOCKING, Anomaly, InvoiceFacts, run_controls
 from app.domain.rules import VATCalculator, net_of_global_discount, reconcile_line_items
 from app.infrastructure.ml.classifiers import (
     ACCOUNT_KEYWORDS, ConstrainedAccountSuggester, load_active_classifier,
@@ -59,6 +60,7 @@ class ProcessInvoicePipelineUseCase:
                  line_extractor: LineItemExtractor | None = None):
         self.charts = charts
         self.line_extractor = line_extractor or TableLineExtractor()
+        self._section_anomalies: list = []
         self.companies = companies
         self.rates = rates
         self.invoices = invoices
@@ -183,6 +185,17 @@ class ProcessInvoicePipelineUseCase:
         entities += self._check_line_vat(invoice, entities)
         invoice.status = InvoiceStatus.ANALYZED
         self.invoices.update(invoice)
+
+        # --- 5 ter. Contrôles avant écriture (bloquants / alertes) ------------
+        anomalies = self._run_controls(invoice, entities, ocr_result)
+        blocking = [x for x in anomalies if x.severity == BLOCKING]
+        if blocking:
+            invoice.status = InvoiceStatus.ERROR
+            invoice.error_message = (
+                "Écriture non générée — contrôle(s) bloquant(s) : "
+                + " ; ".join(f"{i}) {x.message}" for i, x in enumerate(blocking, 1)))[:2000]
+            self.invoices.update(invoice)
+            return
 
         if invoice.total_ttc is None:
             invoice.status = InvoiceStatus.ERROR
@@ -365,12 +378,52 @@ class ProcessInvoicePipelineUseCase:
                     return None
         return None
 
+    def _run_controls(self, invoice: Invoice, entities: list[ExtractedEntity],
+                      ocr_result: OcrResult) -> list[Anomaly]:
+        """Contrôles de la facture (app.domain.controls), enregistrés comme entités
+        CONTROL_BLOCKING / CONTROL_WARNING pour être montrés au comptable."""
+        amounts, texts = {}, {}
+        for e in entities:
+            if e.entity_type in ("NET_TO_PAY", "DEPOSIT_PAID", "GROSS_TOTAL_HT", "GLOBAL_DISCOUNT",
+                                 "GLOBAL_DISCOUNT_RATE", "AMOUNT_IN_WORDS", "VAT_SUMMARY_BASES",
+                                 "VAT_SUMMARY_VAT") and e.normalized_value:
+                try:
+                    amounts.setdefault(e.entity_type, Decimal(e.normalized_value))
+                except Exception:
+                    pass
+            elif e.entity_type in ("VAT_SUMMARY_RATES", "DUE_DATE") and e.normalized_value:
+                texts.setdefault(e.entity_type, e.normalized_value)
+        try:
+            lines = self.invoices.get_line_items(invoice.id)
+        except Exception:
+            lines = []
+        facts = InvoiceFacts(
+            is_credit_note=invoice.document_type == DocumentType.AVOIR, currency=invoice.currency,
+            total_ht=invoice.total_ht, total_vat=invoice.total_vat, total_ttc=invoice.total_ttc,
+            invoice_date=invoice.invoice_date, amounts=amounts, texts=texts,
+            vat_mismatches=[e.raw_value for e in entities if e.entity_type == "VAT_RATE_MISMATCH"],
+            lines=lines, section_anomalies=list(self._section_anomalies),
+            has_nif=any(e.entity_type == "NIF" for e in entities),
+            full_text=" ".join(b.text for b in ocr_result.blocks))
+        allowed = {Decimal(r.strip()) for r in self.settings.allowed_vat_rates.split(",") if r.strip()}
+        anomalies = run_controls(facts, date.today(), allowed)
+        records = [ExtractedEntity(
+            entity_type="CONTROL_BLOCKING" if x.severity == BLOCKING else "CONTROL_WARNING",
+            raw_value=x.message[:500], normalized_value=x.code, confidence=1.0,
+            method=ExtractionMethod.REGEX) for x in anomalies]
+        if records:
+            self.invoices.save_entities(invoice.id, records)
+            entities += records
+        return anomalies
+
     def _extract_line_items(self, invoice_id: int, ocr_result: OcrResult) -> None:
         """Lignes de détail : extraites et enregistrées pour consultation, sans
         effet (pour l'instant) sur l'écriture. Toute erreur est absorbée : une
         lecture de tableau ratée ne doit jamais faire échouer le traitement."""
+        self._section_anomalies = []
         try:
             lines = self.line_extractor.extract(ocr_result)
+            self._section_anomalies = list(getattr(self.line_extractor, "section_anomalies", []))
             if lines:
                 self.invoices.save_line_items(invoice_id, lines)
         except Exception:
@@ -457,6 +510,7 @@ class ProcessInvoicePipelineUseCase:
             score -= 0.15
         if any(e.entity_type == "VAT_RATE_MISMATCH" for e in entities):
             score -= 0.15   # TVA incohérente avec les taux : la proposition doit être vérifiée
+        score -= 0.05 * sum(1 for e in entities if e.entity_type == "CONTROL_WARNING")
         if not supplier_known:
             score -= 0.10
         if ocr.engine == "TESSERACT":
