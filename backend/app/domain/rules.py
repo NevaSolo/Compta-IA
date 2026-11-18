@@ -128,3 +128,26 @@ def reconcile_line_items(lines: list[InvoiceLine], total_ht: Decimal | None,
     if total_ttc is not None and abs(total - total_ttc) <= tolerance:
         return "TTC"
     return None
+
+
+def net_of_global_discount(lines: list[InvoiceLine], total_ht: Decimal | None,
+                           discount: Decimal | None) -> list[InvoiceLine] | None:
+    """Remise globale (« Remise sur volume (2 %)  −958 400 ») : les lignes sont
+    imprimées AVANT remise, le Total HT APRÈS. Si somme des lignes − remise = Total HT,
+    chaque ligne reçoit sa part de remise au prorata de son montant (comme le
+    récapitulatif TVA de la facture) ; l'écart d'arrondi va à la plus grosse ligne,
+    pour que la somme retombe exactement sur le Total HT. None sinon."""
+    if not lines or total_ht is None or not discount:
+        return None
+    gross = sum((line.amount for line in lines), Decimal("0"))
+    tolerance = Decimal("0.01") * max(2, len(lines))
+    if gross <= 0 or abs(gross - abs(discount) - total_ht) > tolerance:
+        return None
+    cent = Decimal("0.01")
+    nets = [(line.amount * total_ht / gross).quantize(cent, rounding=ROUND_HALF_UP) for line in lines]
+    biggest = max(range(len(nets)), key=lambda i: abs(nets[i]))
+    nets[biggest] += total_ht - sum(nets)
+    return [InvoiceLine(line.line_no, line.description, net, quantity=line.quantity,
+                        unit_price=line.unit_price, vat_rate=line.vat_rate,
+                        confidence=line.confidence, source_bbox=line.source_bbox)
+            for line, net in zip(lines, nets)]

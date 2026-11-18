@@ -53,12 +53,23 @@ _EQUIPMENT = ["four", "plan de travail", "chambre froide", "refrigerateur", "con
 _FOOD = ["denree", "alimentaire", "huile", "farine", "sucre", "riz", "lait", "beurre", "oeuf", "fromage",
          "viande", "poisson", "volaille", "poulet", "legume", "fruit", "epice", "conserve", "boisson",
          "cafe", "vin", "biere", "levure", "sel"]
+_EQUIPMENT += ["plaque de cuisson", "plaques de cuisson", "cuisiniere", "four a gaz"]
+# Petit équipement et consommables d'exploitation (vaisselle, linge, produits
+# d'entretien) : une charge, par prudence, plutôt qu'une immobilisation
+_SUPPLIES = ["vaisselle", "porcelaine", "couverts", "ustensile", "linge", "draps", "serviette",
+             "detergent", "nettoyant", "produit d'entretien", "produits d'entretien", "savon"]
+# Prestations de service : installation, mise en service, formation
+_SERVICES = ["installation", "mise en service", "formation"]
 for _code in ("215", "2154"):
     EXTRA_KEYWORDS.setdefault(_code, []).extend(_EQUIPMENT)
 EXTRA_KEYWORDS.setdefault("607", []).extend(_FOOD)
+EXTRA_KEYWORDS.setdefault("606", []).extend(_SUPPLIES)     # plan malgache
+EXTRA_KEYWORDS.setdefault("6063", []).extend(_SUPPLIES)    # plan français
+EXTRA_KEYWORDS.setdefault("604", []).extend(_SERVICES)
 # Mots courts qui sont aussi le début d'autres mots : à reconnaître en MOT ENTIER
 # (« four » ≠ « fournitures », « fournisseur » ; « sel » ≠ « sellerie » ; « riz »…)
-WHOLE_WORDS = {"four", "riz", "sel", "vin", "lait", "cafe", "hotte", "fruit", "machine"}
+WHOLE_WORDS = {"four", "riz", "sel", "vin", "lait", "cafe", "hotte", "fruit", "machine",
+               "hotel"}  # « hôtel » (nuitée), pas « hôtelier » (lot hôtelier)
 # Abonnement, location, maintenance… : une charge, jamais une immobilisation,
 # même si la ligne mentionne un logiciel ou un matériel.
 CHARGE_ONLY_RE = re.compile(r"\b(?:abonnement|location|loyer|maintenance|support|redevance|forfait mensuel"

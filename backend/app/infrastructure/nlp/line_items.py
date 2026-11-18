@@ -41,8 +41,12 @@ END_RE = re.compile(
 UNIT_RE = re.compile(
     r"^(?:€|\$|£|eur|usd|gbp|mga|ar|ariary|u|un|unit[ée]s?|pc[es]?|pcs|h|hrs?|heures?|j|jours?"
     r"|mois|an|ans|x|forfait|ens|lot|kg|m|m2|m²|l)$", re.IGNORECASE)
+# Intitulé de section dans le tableau : « A. Produits… », « 2) Prestations », « Sous-total »
+SECTION_TITLE_RE = re.compile(r"^\s*(?:[A-Z]|\d{1,2})[.)]\s+\S|.*\b(?:sous[\s-]*total|subtotal)\b",
+                              re.IGNORECASE)
 SECTION_RE = re.compile(r"^\s*\d{1,2}\.\s+[A-Za-zÀ-ÿ]{3}")
-PAGE_FOOTER_RE = re.compile(r"\bpage\s+\d+\s*(?:of|sur|/)\s*\d+", re.IGNORECASE)
+# « Page 1 of 2 », ou « … RCS 2006 B 00152 | Page 1 » en pied de page
+PAGE_FOOTER_RE = re.compile(r"\bpage\s+\d+\s*(?:(?:of|sur|/)\s*\d+|$)", re.IGNORECASE)
 TOTAL_WORD_RE = re.compile(r"\b(?:total|subtotal|sous-total)\b", re.IGNORECASE)
 MAX_DESCRIPTION_WORDS = 30   # au-delà : un paragraphe (conditions générales), pas une ligne
 MAX_CONTINUATION_WORDS = 15
@@ -52,7 +56,8 @@ EMPTY_CELL_RE = re.compile(r"^[—–\-/|]$")
 # Unité libre écrite après la quantité (« 2 demi-journée », « 4 billet ») : un mot court
 UNIT_WORD_RE = re.compile(r"^[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ.\-]{0,14}$")
 NUMBER_RE = re.compile(r"^([-−–]?)[€$£]?(\d[\d.,]*)[€$£]?$")
-PERCENT_RE = re.compile(r"^(\d+(?:[.,]\d+)?)\s*%$")
+# « 20 % », et « -5 % » dans une colonne Remise (le signe ne change pas la remise)
+PERCENT_RE = re.compile(r"^[-−–]?(\d+(?:[.,]\d+)?)\s*%$")
 THOUSANDS_TAIL_RE = re.compile(r"^\d{3}(?:[.,]\d{1,2})?$")
 THOUSANDS_HEAD_RE = re.compile(r"^[-−–]?\d{1,3}$")
 
@@ -112,6 +117,7 @@ class TableLineExtractor(LineItemExtractor):
                            confidence=b.confidence) for b in ocr_result.blocks]
         lines: list[InvoiceLine] = []
         in_table = False
+        amount_left = 0.0
         visual_lines = _visual_lines(blocks)
         skip = 0
         for index, visual_line in enumerate(visual_lines):
@@ -123,20 +129,56 @@ class TableLineExtractor(LineItemExtractor):
             if header_size:
                 in_table = True  # (ré)ouverture : en-tête répété sur une page suivante
                 skip = header_size - 1
+                # Bord gauche de la dernière colonne (« Montant ») : le montant d'une
+                # ligne s'y trouve toujours
+                last = max((b for line in visual_lines[index:index + header_size] for b in line),
+                           key=lambda b: max(pt[0] for pt in b.bbox))
+                amount_left = min(pt[0] for pt in last.bbox)
                 continue
             if not in_table:
                 continue
             if self._ends_table(visual_line, text):
                 in_table = False
                 continue
-            item = self._parse_row(visual_line)
+            # Un nombre qui n'atteint pas la colonne des montants appartient à la
+            # désignation (« 4 feux gaz, inox, garantie 2 ans ») : pas une ligne
+            reaches_amounts = max(pt[0] for pt in visual_line[-1].bbox) >= amount_left
+            item = self._parse_row(visual_line) if reaches_amounts else None
             if item is not None:
                 item.line_no = len(lines) + 1
                 lines.append(item)
             elif lines and self._is_continuation(visual_line):
                 # Désignation sur plusieurs lignes : texte sans aucun nombre
                 lines[-1].description = f"{lines[-1].description} {text.strip()}"[:500]
-        return lines
+        return self._drop_subtotals(lines)
+
+    @staticmethod
+    def _drop_subtotals(lines: list[InvoiceLine]) -> list[InvoiceLine]:
+        """Intitulés de section (« B. Équipements (TVA 20 %)  27 800 000 ») et
+        sous-totaux : une ligne sans quantité ni prix dont le montant est la somme
+        des lignes qui la suivent (intitulé) ou qui la précèdent (sous-total), jusqu'à
+        la ligne de même nature voisine. Les garder compterait ces montants deux fois."""
+        def plain(line: InvoiceLine) -> bool:
+            return line.quantity is None and line.unit_price is None
+
+        def is_group_total(line: InvoiceLine, indices) -> bool:
+            total, count = Decimal("0"), 0
+            for j in indices:
+                if plain(lines[j]):
+                    break
+                total += lines[j].amount
+                count += 1
+            # Une seule ligne de même montant ne suffit pas (« Forfait 500 » puis une
+            # ligne à 500) : il faut un intitulé de section explicite
+            explicit = bool(SECTION_TITLE_RE.match(line.description))
+            return (count >= 2 or (count == 1 and explicit)) and _close(total, line.amount)
+
+        kept = [line for i, line in enumerate(lines)
+                if not (plain(line) and (is_group_total(line, range(i + 1, len(lines)))
+                                         or is_group_total(line, range(i - 1, -1, -1))))]
+        for no, line in enumerate(kept, start=1):
+            line.line_no = no
+        return kept
 
     # ----------------------------------------------------------- Tableau
     def _header_size(self, visual_lines: list[list[OcrBlock]], index: int) -> int:

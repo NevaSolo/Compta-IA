@@ -20,7 +20,7 @@ from app.domain.ports import (
     ExchangeRateRepository, InvoiceRepository, LineItemExtractor, OcrResult, RuleRepository,
     SupplierRepository,
 )
-from app.domain.rules import VATCalculator, reconcile_line_items
+from app.domain.rules import VATCalculator, net_of_global_discount, reconcile_line_items
 from app.infrastructure.ml.classifiers import (
     ACCOUNT_KEYWORDS, ConstrainedAccountSuggester, load_active_classifier,
 )
@@ -293,7 +293,11 @@ class ProcessInvoicePipelineUseCase:
         try:
             lines = self.invoices.get_line_items(invoice.id)
             if reconcile_line_items(lines, invoice.total_ht, invoice.total_ttc) != "HT":
-                return None
+                # Lignes avant remise globale : rapprochées du HT par la remise lue
+                lines = net_of_global_discount(lines, invoice.total_ht,
+                                               self._entity_amount(invoice.id, "GLOBAL_DISCOUNT"))
+                if lines is None:
+                    return None
             reserved = {spec["default_account"] for spec in rule["template"].get("lines", [])
                         if spec["amount"] in ("VAT", "TTC")}
             fallback_account = next((l.account_code for l in entry.lines
@@ -313,6 +317,15 @@ class ProcessInvoicePipelineUseCase:
             logger.warning("Ventilation par ligne impossible pour la facture %s : "
                            "écriture au niveau de la facture conservée", invoice.id, exc_info=True)
             return None
+
+    def _entity_amount(self, invoice_id: int, entity_type: str) -> Decimal | None:
+        for entity in self.invoices.get_entities(invoice_id):
+            if entity["entity_type"] == entity_type and entity.get("normalized_value"):
+                try:
+                    return Decimal(str(entity["normalized_value"]))
+                except Exception:
+                    return None
+        return None
 
     def _extract_line_items(self, invoice_id: int, ocr_result: OcrResult) -> None:
         """Lignes de détail : extraites et enregistrées pour consultation, sans

@@ -175,3 +175,47 @@ def test_lines_of_another_company_are_hidden(client, auth_headers, french_compan
     db_session.add(invoice)
     db_session.commit()
     assert client.get(f"/api/invoices/{invoice.id}/lines", headers=auth_headers).status_code == 404
+
+
+@pytest.fixture()
+def malagasy_purchase_rules(db_session, chart):
+    """Règles d'achat du plan malgache (seed_accounts.sql) et leurs comptes."""
+    from app.infrastructure.db.models import AccountModel, AccountingRuleModel
+    from tests.infrastructure.test_line_entry import MG_RULES
+    codes = {c for r in MG_RULES for spec in r["template"]["lines"]
+             for c in (spec.get("candidates") or []) + [spec["default_account"]]}
+    for code in sorted(codes):
+        db_session.add(AccountModel(chart_id=chart.id, code=code, label=f"Compte {code}",
+                                    account_class=int(code[0]),
+                                    normal_balance="CREDIT" if code.startswith("40") else "DEBIT"))
+    for priority, rule in zip((100, 100, 100, 110), MG_RULES):
+        db_session.add(AccountingRuleModel(chart_id=chart.id, code=rule["code"],
+                                           operation_type=rule["operation_type"],
+                                           description=rule["code"], priority=priority,
+                                           template=rule["template"]))
+    db_session.commit()
+
+
+def test_two_page_multirate_invoice_with_global_discount_is_split(client, auth_headers, company,
+                                                                  malagasy_purchase_rules,
+                                                                  tmp_path, monkeypatch):
+    """Facture FA-2026-11-0412 (plan malgache) : trois taux de TVA, intitulés de
+    section, remise de ligne, remise globale de 2 % et acompte. Cas réel : une
+    seule ligne 624 « transports » sans TVA, pour 46 961 600 Ar."""
+    from pathlib import Path
+    monkeypatch.setattr(get_settings(), "upload_dir", str(tmp_path))
+    monkeypatch.setattr(pipeline_module, "load_active_classifier",
+                        lambda: _fake_classifier(OperationType.ACHAT_SERVICES))
+    pdf = (Path(__file__).resolve().parents[1] / "fixtures" / "facture_multitaux_2pages.pdf").read_bytes()
+    response = client.post("/api/invoices", headers=auth_headers,
+                           files={"file": ("multitaux.pdf", pdf, "application/pdf")})
+    invoice_id = response.json()["id"]
+    invoice = client.get(f"/api/invoices/{invoice_id}", headers=auth_headers).json()
+    assert (Decimal(invoice["total_vat"]), Decimal(invoice["total_ttc"])) == \
+        (Decimal("6215160"), Decimal("53176760"))
+    assert invoice["status"] == "ENTRIES_PROPOSED", invoice.get("error_message")
+    lines = _entry_amounts(client, auth_headers, invoice_id)
+    assert lines["4456"] == (Decimal("6215160.00"), 0)
+    assert lines["215"] == (Decimal("8937600.00"), 0)    # plaques de cuisson, après remise de 2 %
+    assert lines["607"] == (Decimal("12054000.00"), 0)   # denrées
+    assert sum(d for d, _ in lines.values()) == sum(c for _, c in lines.values()) == Decimal("53176760.00")

@@ -97,6 +97,7 @@ EXCLUDED_ANCHORS = {
 }
 # Taux porté par un libellé de TVA : « TVA 10 % », « VAT @ 5.5% »
 RATE_IN_LABEL_RE = re.compile(r"(\d+(?:[.,]\d+)?)\s*%")
+TAX_LABEL_RE = re.compile(r"\s*(?:t\.?v\.?a|vat|tax|taxe)\b", re.IGNORECASE)
 TOLERANCE = Decimal("0.02")  # écart d'arrondi toléré entre HT + TVA et TTC
 
 # Montants purement informatifs (n'entrent pas dans l'écriture) : montrés au comptable
@@ -104,10 +105,15 @@ INFO_ANCHORS = {
     "DEPOSIT_PAID": r"acompte|deposit|advance\s*payment",
     "EARLY_PAYMENT_DISCOUNT": r"escompte|early\s*payment\s*discount",
     "NET_TO_PAY": r"net\s*[àa]\s*payer|reste\s*[àa]\s*payer|amount\s*due|balance\s*due|total\s*due|net\s*payable",
+    # Remise globale (« Remise sur volume (2 %)  -958 400 ») : déjà déduite du HT,
+    # elle sert à rapprocher la somme des lignes (avant remise) du Total HT
+    "GLOBAL_DISCOUNT": r"remise|rabais|ristourne|\bdiscount\b",
 }
+SIGNED_INFO = {"EARLY_PAYMENT_DISCOUNT", "GLOBAL_DISCOUNT"}
 # Un « net à payer » assorti d'un escompte est conditionnel : on ne le retient pas.
 INFO_EXCLUDED_ANCHORS = {
     "NET_TO_PAY": re.compile(r"escompte|early\s*payment|prompt\s*payment|rebate", re.IGNORECASE),
+    "GLOBAL_DISCOUNT": re.compile(r"escompte|early\s*payment|prompt\s*payment", re.IGNORECASE),
 }
 
 CURRENCY_RE = re.compile(r"(?<![A-Za-z])(ariary|mga|ar|eur|usd|gbp|chf)(?![A-Za-z])|(€|\$|£)", re.IGNORECASE)
@@ -204,6 +210,23 @@ def _same_visual_line(a: OcrBlock, b: OcrBlock) -> bool:
     sont distants de moins d'une demi-hauteur de bloc."""
     tolerance = max(_block_height(a), _block_height(b)) * 0.6
     return abs(_block_center_y(a) - _block_center_y(b)) <= tolerance
+
+
+def _label_between(anchor: OcrBlock, other: OcrBlock, blocks: list[OcrBlock]) -> bool:
+    """Un autre libellé s'intercale-t-il entre l'ancre et le montant, sur la même
+    ligne ? Le montant est alors celui de ce libellé, pas de l'ancre. Cas réel
+    (mise en page à deux colonnes) : « Acompte déduit : facture d'acompte … »
+    à gauche, « Total TTC  53 176 760 » à droite — le TTC était lu comme acompte."""
+    left, right = sorted((_block_center_x(anchor), _block_center_x(other)))
+    for block in blocks:
+        if block is anchor or block is other or not _same_visual_line(anchor, block):
+            continue
+        amounts = [m for m in AMOUNT_RE.findall(block.text)
+                   if not re.search(re.escape(m) + r"\s*%", block.text)]  # « (2 %) » : un taux
+        if left < _block_center_x(block) < right and re.search(r"[A-Za-zÀ-ÿ]{3}", block.text) \
+                and not amounts:
+            return True
+    return False
 
 
 def _matches_any(text: str, patterns: list[str]) -> bool:
@@ -303,9 +326,17 @@ class HybridExtractor(EntityExtractor):
         # HT + TVA = TTC est cohérent. Indépendant de la langue et de la mise en page.
         chosen: dict[str, _Candidate] = {}
         if all(pools.values()):
+            # Facture à plusieurs taux (« TVA (20 %) », « TVA (10 %) », « TVA (0 %) ») :
+            # chacun de ces montants n'est qu'une PART de la TVA. Cas réel : « TVA (0 %) 0 »
+            # formait avec « Total HT » et le « Total » du récapitulatif (HT) un trio
+            # faussement cohérent HT + 0 = HT ; ils ne valent que par leur somme.
+            rates = {RATE_IN_LABEL_RE.search(c.anchor).group(1) for c in pools["TOTAL_VAT"]
+                     if RATE_IN_LABEL_RE.search(c.anchor)}
+            vat_pool = [c for c in pools["TOTAL_VAT"]
+                        if len(rates) < 2 or not RATE_IN_LABEL_RE.search(c.anchor)]
             best_key, best = None, None
             for ht in pools["TOTAL_HT"]:
-                for vat in pools["TOTAL_VAT"]:
+                for vat in vat_pool:
                     for ttc in pools["TOTAL_TTC"]:
                         if abs(ht.value + vat.value - ttc.value) > TOLERANCE:
                             continue
@@ -334,7 +365,10 @@ class HybridExtractor(EntityExtractor):
         puis « TVA 20 % 1 510,48 ». La TVA totale est la somme des montants par
         taux — retenue seulement si HT + somme = TTC (arbitrage par le calcul)."""
         by_rate: dict[Decimal, _Candidate] = {}
-        for c in pools["TOTAL_VAT"]:
+        # D'abord les libellés de taxe (« TVA (20 %) ») : un intitulé de section
+        # « B. Équipements (TVA 20 %)  27 800 000 » porte un sous-total HT, pas une TVA
+        tax_first = sorted(pools["TOTAL_VAT"], key=lambda c: not TAX_LABEL_RE.match(c.anchor))
+        for c in tax_first:
             rate = RATE_IN_LABEL_RE.search(c.anchor)
             if c.value is None or c.rank == 0 or not rate:
                 continue
@@ -398,7 +432,7 @@ class HybridExtractor(EntityExtractor):
                     continue
                 amounts = [m for m in AMOUNT_RE.findall(other.text)
                            if not re.search(re.escape(m) + r"\s*%", other.text)]
-                if not amounts:
+                if not amounts or _label_between(anchor, other, blocks):
                     continue
                 candidate = _Candidate.make(amounts[-1], other,
                                             min(anchor.confidence, other.confidence), rank)
@@ -443,11 +477,13 @@ class HybridExtractor(EntityExtractor):
                 for other in blocks:
                     if other is anchor or not _same_visual_line(anchor, other):
                         continue
-                    if _block_center_x(other) <= _block_center_x(anchor):
+                    if _block_center_x(other) <= _block_center_x(anchor) \
+                            or _label_between(anchor, other, blocks):
                         continue
                     amounts = AMOUNT_RE.findall(other.text)
-                    # un escompte est une déduction : montant signé « - », jamais le net à payer voisin
-                    if not amounts or (entity_type == "EARLY_PAYMENT_DISCOUNT"
+                    # un escompte, une remise : une déduction, montant signé « - »,
+                    # jamais le net à payer voisin
+                    if not amounts or (entity_type in SIGNED_INFO
                                        and not re.match(r"\s*[-−–]", other.text)):
                         continue
                     normalized = normalize_amount(amounts[-1])
