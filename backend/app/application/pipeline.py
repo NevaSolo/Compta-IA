@@ -386,6 +386,7 @@ class ProcessInvoicePipelineUseCase:
         for e in entities:
             if e.entity_type in ("NET_TO_PAY", "DEPOSIT_PAID", "GROSS_TOTAL_HT", "GLOBAL_DISCOUNT",
                                  "GLOBAL_DISCOUNT_RATE", "AMOUNT_IN_WORDS", "VAT_SUMMARY_BASES",
+                                 "RETENTION", "RETENTION_RATE",
                                  "VAT_SUMMARY_VAT") and e.normalized_value:
                 try:
                     amounts.setdefault(e.entity_type, Decimal(e.normalized_value))

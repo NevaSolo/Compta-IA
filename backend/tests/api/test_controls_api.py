@@ -38,6 +38,8 @@ def processed(client, auth_headers, company, malagasy_purchase_rules, tmp_path, 
     ("facture_15_erreur_sous_total.pdf", "SECTION_SUBTOTAL"),        # sous-total A faux de 500 000
     ("facture_16_erreur_acompte_double.pdf", "NET_TO_PAY"),          # acompte déduit deux fois
     ("facture_multitaux_erreur_tva.pdf", "VAT_RATE"),                # TVA 10 % calculée à 20 %
+    ("facture_21_erreur_taux_tva_18.pdf", "VAT_RATE_UNKNOWN"),       # taux de 18 % inexistant
+    ("facture_22_erreur_montant_en_lettres.pdf", "AMOUNT_IN_WORDS"),  # 36 839 840 en lettres
 ])
 def test_blocking_error_prevents_the_entry(processed, filename, code):
     invoice, controls, entries = processed(filename)
@@ -53,3 +55,17 @@ def test_correct_invoice_gets_its_entry_with_only_warnings(processed):
     assert "CONTROL_BLOCKING" not in controls.values()
     assert controls == {"VAT_ZERO_REASON": "CONTROL_WARNING"}   # 0 % sans motif d'exonération
     assert len(entries) == 1
+
+
+@pytest.mark.parametrize("filename, warnings", [
+    ("facture_17_correcte_amenagement.pdf", {}),
+    ("facture_18_correcte_multitaux_agricole.pdf", {"VAT_ZERO_REASON": "CONTROL_WARNING"}),
+    # retenue de garantie de 5 % : net = TTC − acompte − retenue (cas réel : bloquée à tort)
+    ("facture_19_correcte_btp_retenue.pdf", {}),
+    # même ligne de montage facturée deux fois : alerte, l'écriture reste proposée
+    ("facture_20_erreur_ligne_en_doublon.pdf", {"DUPLICATE_LINE": "CONTROL_WARNING"}),
+])
+def test_entry_is_proposed_with_warnings_only(processed, filename, warnings):
+    invoice, controls, entries = processed(filename)
+    assert controls == warnings
+    assert invoice["status"] == "ENTRIES_PROPOSED" and len(entries) == 1

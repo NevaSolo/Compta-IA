@@ -22,13 +22,15 @@ ANCHORS = {
                   r"total\s*due", r"balance\s*due", r"total\s*payable",
                   r"amount\s*payable", r"total\s*[àa]\s*payer"],
     "TOTAL_HT": [r"total\s*h\.?t", r"montant\s*h\.?t", r"sub\s*-?\s*total",
-                 r"total\s*hors\s*taxes?", r"sous\s*-?\s*total", r"total\s*net",
+                 r"total\s*hors\s*taxes?", r"sous\s*-?\s*total", r"total\s*net",
                  r"net\s*total", r"base\s*imposable"],
     "TOTAL_VAT": [r"t\.?v\.?a", r"\bvat\b", r"taxe"],
     "INVOICE_NUMBER": [r"facture\s*(n[°ºo]|num|#)", r"invoice\s*(no|#|number)",
                        r"fact\.?\s*n[°ºo]", r"faktiora", r"\bn[°ºo]?\s*:",
                        # « N° FV-2024-0180 » sans « : » (mais pas « N° commande client »)
-                       r"^\s*n[°º]\s*(?=[a-z]{0,5}-?\d)"],
+                       r"^\s*n[°º]\s*(?=[a-z]{0,5}-?\d)",
+                       # « Facture FRN-2026-DEC-02 (suite) » : en-tête de page sans « n° »
+                       r"\bfacture\s+(?=[a-z]{2,5}-\d)"],
     "NIF": [r"\bn\.?i\.?f\b"],
     "STAT": [r"\bstat\b"],
     "DATE": [r"\bdate\b", r"\bdaty\b", r"\ble\b\s*:"],
@@ -160,8 +162,10 @@ INFO_ANCHORS = {
     "GLOBAL_DISCOUNT": r"remise|rabais|ristourne|\bdiscount\b",
     # Total avant remise globale : contrôles HT brut = somme des lignes, HT = brut − remise
     "GROSS_TOTAL_HT": r"h\.?\s*t\.?\s*brut|total\s*brut|avant\s*remise|gross\s*(?:sub)?total",
+    # Retenue de garantie (marchés de travaux) : déduite du net à payer, hors écriture de charge
+    "RETENTION": r"retenue\s*(?:de\s*garantie)?|retention|holdback",
 }
-SIGNED_INFO = {"EARLY_PAYMENT_DISCOUNT", "GLOBAL_DISCOUNT"}
+SIGNED_INFO = {"EARLY_PAYMENT_DISCOUNT", "GLOBAL_DISCOUNT", "RETENTION"}
 # Un « net à payer » assorti d'un escompte est conditionnel : on ne le retient pas.
 INFO_EXCLUDED_ANCHORS = {
     "NET_TO_PAY": re.compile(r"escompte|early\s*payment|prompt\s*payment|rebate", re.IGNORECASE),
@@ -184,7 +188,8 @@ SUPPLIER_LABEL_RE = re.compile(
     r"\s*[:：]\s*(?P<value>.*)$", re.IGNORECASE)
 # Intitulé de cadre seul sur sa ligne (« ÉMETTEUR »), le nom étant écrit dessous
 SUPPLIER_HEADING_RE = re.compile(
-    r"^\s*(?:vendeur|fournisseur|[ée]metteur|seller|supplier|vendor|issued\s+by|from)\s*[:：]?\s*$",
+    r"^\s*(?:vendeur|fournisseur|[ée]metteur|seller|supplier|vendor|issued\s+by|from)"
+    r"\s*(?:\([^)]*\))?\s*[:：]?\s*$",   # « ÉMETTEUR (ENTREPRENEUR) »
     re.IGNORECASE)
 
 DOCUMENT_TITLE_PATTERNS = [
@@ -609,9 +614,9 @@ class HybridExtractor(EntityExtractor):
                         # « Remise commerciale (5 %) » : le pourcentage annoncé, pour
                         # contrôler montant = pourcentage × base
                         rate = RATE_IN_LABEL_RE.search(anchor.text)
-                        if entity_type == "GLOBAL_DISCOUNT" and rate:
+                        if entity_type in ("GLOBAL_DISCOUNT", "RETENTION") and rate:
                             found.append(ExtractedEntity(
-                                entity_type="GLOBAL_DISCOUNT_RATE", raw_value=rate.group(0),
+                                entity_type=f"{entity_type}_RATE", raw_value=rate.group(0),
                                 normalized_value=rate.group(1).replace(",", "."),
                                 confidence=entity.confidence, method=ExtractionMethod.REGEX,
                                 source_block={"bbox": anchor.bbox, "text": anchor.text}))

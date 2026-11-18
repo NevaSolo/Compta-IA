@@ -334,8 +334,8 @@ class TableLineExtractor(LineItemExtractor):
             value = _to_decimal(percent.group(1))
             return _Token(value, True, start, 0) if value is not None else None
         number = NUMBER_RE.match(raw.replace(" ", "")) if merges else NUMBER_RE.match(raw)
-        if not number:
-            return None
+        if not number or (not merges and re.fullmatch(r"0{3}", raw)):
+            return None   # « 000 » isolé : la fin d'un nombre (« 34 000 000 »), jamais une valeur
         value = _to_decimal(number.group(2))
         if value is None:
             return None

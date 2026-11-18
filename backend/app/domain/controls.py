@@ -66,25 +66,36 @@ def run_controls(facts: InvoiceFacts, today: date, allowed_vat_rates: set[Decima
     ht, vat, ttc = facts.total_ht, facts.total_vat, facts.total_ttc
     a = facts.amounts
     net, deposit = a.get("NET_TO_PAY"), a.get("DEPOSIT_PAID", Decimal("0"))
+    retention = a.get("RETENTION", Decimal("0"))   # retenue de garantie (travaux)
     gross, discount = a.get("GROSS_TOTAL_HT"), a.get("GLOBAL_DISCOUNT")
 
     # ---------------------------------------------------- 1. Arithmétique
     if ht is not None and vat is not None and ttc is not None and abs(ht + vat - ttc) > unit:
         add("TTC_HT_TVA", BLOCKING,
             f"Total TTC {_fmt(ttc)} ≠ Total HT {_fmt(ht)} + TVA {_fmt(vat)} = {_fmt(ht + vat)}")
-    if net is not None and ttc is not None and abs(net - (ttc - deposit)) > unit:
+    if net is not None and ttc is not None and abs(net - (ttc - deposit - retention)) > unit:
+        expected = ttc - deposit - retention
         hint = ""
-        if deposit and abs(net - (ttc - 2 * deposit)) <= unit:
+        if deposit and abs(net - (expected - deposit)) <= unit:
             hint = " : l'acompte semble déduit deux fois"
-        elif deposit and abs(net - ttc) <= unit:
+        elif deposit and abs(net - (expected + deposit)) <= unit:
             hint = " : l'acompte n'a pas été déduit"
+        detail = f" − retenue {_fmt(retention)}" if retention else ""
         add("NET_TO_PAY", BLOCKING,
-            f"Net à payer {_fmt(net)} ≠ TTC {_fmt(ttc)} − acompte {_fmt(deposit)} = "
-            f"{_fmt(ttc - deposit)}{hint}")
+            f"Net à payer {_fmt(net)} ≠ TTC {_fmt(ttc)} − acompte {_fmt(deposit)}{detail} = "
+            f"{_fmt(expected)}{hint}")
+    retention_rate = a.get("RETENTION_RATE")
+    if retention and retention_rate is not None and ttc is not None:
+        expected = (ttc * retention_rate / 100).quantize(Decimal("0.01"))
+        if abs(expected - retention) > unit * 2:
+            add("RETENTION_RATE", BLOCKING,
+                f"Retenue de garantie {_fmt(retention)} ≠ {retention_rate.normalize():f} % du TTC "
+                f"{_fmt(ttc)} = {_fmt(expected)}")
     words = a.get("AMOUNT_IN_WORDS")
     if words is not None:
         # le montant en lettres est celui du net à payer (ou du TTC s'il n'y a pas d'acompte)
-        targets = [t for t in (net, ttc, ttc - deposit if ttc is not None else None) if t is not None]
+        targets = [t for t in (net, ttc, ttc - deposit - retention if ttc is not None else None)
+                   if t is not None]
         if targets and all(abs(words - t) > unit for t in targets):
             add("AMOUNT_IN_WORDS", BLOCKING,
                 f"Montant en lettres ({_fmt(words)}) ≠ montant en chiffres ({_fmt(targets[0])})")
@@ -109,6 +120,16 @@ def run_controls(facts: InvoiceFacts, today: date, allowed_vat_rates: set[Decima
         add("HT_VS_GROSS", BLOCKING,
             f"Total HT {_fmt(ht)} ≠ HT brut {_fmt(gross)} − remise {_fmt(discount or Decimal('0'))} "
             f"= {_fmt(gross - (discount or 0))}")
+
+    # ------------------------------------------------- 8. Lignes de détail
+    seen: dict[tuple, str] = {}
+    for line in facts.lines:
+        # même désignation (sans le n° de ligne), même quantité, même montant
+        key = (re.sub(r"^\s*\d+\s+", "", line.description).lower(), line.quantity, line.amount)
+        if key in seen:
+            add("DUPLICATE_LINE", WARNING,
+                f"Ligne répétée dans la facture : « {key[0][:60]} » ({_fmt(line.amount)})")
+        seen.setdefault(key, line.description)
 
     # ---------------------------------------------------- 2. TVA
     for message in facts.vat_mismatches:

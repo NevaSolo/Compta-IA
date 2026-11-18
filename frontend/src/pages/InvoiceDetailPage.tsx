@@ -586,6 +586,7 @@ function ControlResults({ entities }: { entities: { entity_type: string; raw_val
 
 const INFO_LABELS: Record<string, string> = {
   DEPOSIT_PAID: "Acompte déjà versé",
+  RETENTION: "Retenue de garantie",
   NET_TO_PAY: "Net à payer",
   EARLY_PAYMENT_DISCOUNT: "Escompte possible",
 };
@@ -606,7 +607,8 @@ function PaymentInfo({
   const net = value("NET_TO_PAY");
   const ttc = totalTtc !== null ? Number(totalTtc) : NaN;
   const checkable = net !== null && !Number.isNaN(ttc);
-  const expected = ttc - (deposit !== null ? Number(deposit) : 0);
+  const retention = value("RETENTION");
+  const expected = ttc - (deposit !== null ? Number(deposit) : 0) - (retention !== null ? Number(retention) : 0);
   const coherent = checkable && Math.abs(expected - Number(net)) < 0.02;
 
   return (
@@ -625,8 +627,8 @@ function PaymentInfo({
       {checkable && (
         <p className={`mt-2 text-xs ${coherent ? "text-emerald-700" : "text-amber-700"}`}>
           {coherent
-            ? "Cohérent : TTC − acompte = net à payer."
-            : `Écart : TTC − acompte = ${formatMoney(expected)}, mais le net à payer lu est ${formatMoney(net)}. À vérifier.`}
+            ? `Cohérent : TTC − acompte${retention !== null ? " − retenue" : ""} = net à payer.`
+            : `Écart : TTC − acompte${retention !== null ? " − retenue" : ""} = ${formatMoney(expected)}, mais le net à payer lu est ${formatMoney(net)}. À vérifier.`}
         </p>
       )}
     </div>
