@@ -113,3 +113,27 @@ def test_retrain_does_not_regress_active_version(db_session, comptable_user, mon
         ModelVersionModel.version != "9.9.9", ModelVersionModel.algorithm != "keyword").all()
     assert len(new_versions) == 2
     assert all(not v.is_active for v in new_versions)  # aucun des deux candidats n'est activé
+
+
+def test_retrain_skips_when_a_type_is_too_rare_to_calibrate(db_session, comptable_user):
+    """Cas réel : 33 factures validées dont 2 achats d'immobilisation dans la partie
+    entraînement → le calibrage à 3 plis levait ValueError (erreur 500). Le
+    réentraînement est maintenant refusé avec un motif, sans créer de version."""
+    for i in range(2):   # en tête : ces factures tombent dans la partie entraînement
+        invoice = InvoiceModel(company_id=comptable_user.company_id, uploaded_by=comptable_user.id,
+                               original_filename=f"immo{i}.pdf", storage_path="/tmp/f.pdf",
+                               mime_type="application/pdf", file_size=10, status="VALIDATED")
+        db_session.add(invoice)
+        db_session.flush()
+        db_session.add(OcrResultModel(invoice_id=invoice.id, engine="EASYOCR",
+                                      raw_text="achat ordinateur portable serveur informatique",
+                                      mean_confidence=0.9, blocks=[], duration_ms=10))
+        db_session.add(ClassificationModel(invoice_id=invoice.id,
+                                           model_version_id=_builtin_version_id(db_session),
+                                           operation_type="ACHAT_IMMOBILISATION", probability=0.8))
+    _seed_validated_invoices(db_session, comptable_user)
+    versions_before = db_session.query(ModelVersionModel).count()
+    report = retrain(db_session)
+    assert report["status"] == "SKIPPED"
+    assert "ACHAT_IMMOBILISATION : 2" in report["reason"]
+    assert db_session.query(ModelVersionModel).count() == versions_before

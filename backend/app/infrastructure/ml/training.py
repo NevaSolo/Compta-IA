@@ -8,6 +8,7 @@ Protocole anti-régression validé :
 - artefact joblib versionné, jamais d'écrasement (rollback possible).
 """
 import logging
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
@@ -20,6 +21,7 @@ from app.infrastructure.db import models as m
 logger = logging.getLogger(__name__)
 
 MIN_TRAINING_SAMPLES = 30
+CALIBRATION_FOLDS = 3   # cv de CalibratedClassifierCV : 3 exemples minimum par type
 MODEL_NAME = "operation_classifier"
 
 
@@ -66,7 +68,7 @@ def train_and_evaluate(documents: list[str], labels: list[str]):
         ("tfidf", TfidfVectorizer(ngram_range=(1, 2), max_features=5000,
                                   sublinear_tf=True)),
         ("clf", CalibratedClassifierCV(
-            LogisticRegression(max_iter=1000, class_weight="balanced"), cv=3)),
+            LogisticRegression(max_iter=1000, class_weight="balanced"), cv=CALIBRATION_FOLDS)),
     ])
     pipeline.fit(x_train, y_train)
     predictions = pipeline.predict(x_test)
@@ -125,7 +127,7 @@ def train_and_evaluate_xgboost(documents: list[str], labels: list[str]):
                                   sublinear_tf=True)),
         ("clf", CalibratedClassifierCV(
             XGBClassifier(n_estimators=100, max_depth=4, learning_rate=0.1,
-                         eval_metric="mlogloss"), cv=3)),
+                         eval_metric="mlogloss"), cv=CALIBRATION_FOLDS)),
     ])
     pipeline.fit(x_train, y_train_encoded)
     wrapped = LabelDecodingPipeline(pipeline, encoder)
@@ -157,6 +159,19 @@ def retrain(db: Session) -> dict:
         return {"status": "SKIPPED",
                 "reason": f"Données insuffisantes ({len(documents)} exemples, "
                           f"{len(set(labels))} classes) — minimum {MIN_TRAINING_SAMPLES} et 2 classes."}
+
+    # Le calibrage des probabilités (CalibratedClassifierCV, cv=3) exige au moins
+    # 3 exemples de chaque type dans la partie entraînement. Cas réel en production :
+    # 33 factures validées, dont 2 achats de marchandises → ValueError, erreur 500.
+    _, _, y_train, _ = _split_temporal(documents, labels)
+    counts = Counter(y_train)
+    rare = sorted(label for label, n in counts.items() if n < CALIBRATION_FOLDS)
+    if rare:
+        detail = ", ".join(f"{label} : {counts[label]}" for label in rare)
+        return {"status": "SKIPPED",
+                "reason": f"Données insuffisantes : moins de {CALIBRATION_FOLDS} factures validées "
+                          f"pour certains types dans la partie entraînement ({detail}). "
+                          "Validez davantage de factures de ces types, puis relancez."}
 
     import joblib
 
