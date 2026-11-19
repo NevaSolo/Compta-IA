@@ -40,6 +40,7 @@ def processed(client, auth_headers, company, malagasy_purchase_rules, tmp_path, 
     ("facture_multitaux_erreur_tva.pdf", "VAT_RATE"),                # TVA 10 % calculée à 20 %
     ("facture_21_erreur_taux_tva_18.pdf", "VAT_RATE_UNKNOWN"),       # taux de 18 % inexistant
     ("facture_22_erreur_montant_en_lettres.pdf", "AMOUNT_IN_WORDS"),  # 36 839 840 en lettres
+    ("facture_24_demo_incorrecte_complexe.pdf", "VAT_RATE"),         # TVA 20 % sans déduire la remise
 ])
 def test_blocking_error_prevents_the_entry(processed, filename, code):
     invoice, controls, entries = processed(filename)
@@ -64,6 +65,9 @@ def test_correct_invoice_gets_its_entry_with_only_warnings(processed):
     ("facture_19_correcte_btp_retenue.pdf", {}),
     # même ligne de montage facturée deux fois : alerte, l'écriture reste proposée
     ("facture_20_erreur_ligne_en_doublon.pdf", {"DUPLICATE_LINE": "CONTROL_WARNING"}),
+    # libellé « Remise marché public (2,5 %) » sur deux lignes, note « Acompte déduit … » à
+    # côté de « TVA (0 %) » : les taux étaient lus comme montants (TVA 20 % et acompte)
+    ("facture_23_demo_correcte_complexe.pdf", {"VAT_ZERO_REASON": "CONTROL_WARNING"}),
 ])
 def test_entry_is_proposed_with_warnings_only(processed, filename, warnings):
     invoice, controls, entries = processed(filename)

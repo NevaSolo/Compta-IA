@@ -273,6 +273,12 @@ def _same_visual_line(a: OcrBlock, b: OcrBlock) -> bool:
     return abs(_block_center_y(a) - _block_center_y(b)) <= tolerance
 
 
+def _money_amounts(text: str) -> list[str]:
+    """Montants d'un bloc, sans les pourcentages : dans « TVA (0 %) » ou la suite
+    d'un libellé « (2,5 %) », le nombre est un taux, jamais un montant."""
+    return [m for m in AMOUNT_RE.findall(text) if not re.search(re.escape(m) + r"\s*%", text)]
+
+
 def _label_between(anchor: OcrBlock, other: OcrBlock, blocks: list[OcrBlock]) -> bool:
     """Un autre libellé s'intercale-t-il entre l'ancre et le montant, sur la même
     ligne ? Le montant est alors celui de ce libellé, pas de l'ancre. Cas réel
@@ -282,8 +288,7 @@ def _label_between(anchor: OcrBlock, other: OcrBlock, blocks: list[OcrBlock]) ->
     for block in blocks:
         if block is anchor or block is other or not _same_visual_line(anchor, block):
             continue
-        amounts = [m for m in AMOUNT_RE.findall(block.text)
-                   if not re.search(re.escape(m) + r"\s*%", block.text)]  # « (2 %) » : un taux
+        amounts = _money_amounts(block.text)
         if left < _block_center_x(block) < right and re.search(r"[A-Za-zÀ-ÿ]{3}", block.text) \
                 and not amounts:
             return True
@@ -545,7 +550,8 @@ class HybridExtractor(EntityExtractor):
                 continue
             numbers = []
             for block in line[1:]:   # cellules numériques qui suivent le taux
-                amounts = AMOUNT_RE.findall(block.text)
+                # « (2,5 %) » : suite d'un libellé de la colonne voisine, fin du tableau
+                amounts = _money_amounts(block.text)
                 if not amounts or re.search(r"[A-Za-zÀ-ÿ]{3}", block.text):
                     break
                 numbers.append(normalize_amount(amounts[-1]))
@@ -598,7 +604,7 @@ class HybridExtractor(EntityExtractor):
                     if _block_center_x(other) <= _block_center_x(anchor) \
                             or _label_between(anchor, other, blocks):
                         continue
-                    amounts = AMOUNT_RE.findall(other.text)
+                    amounts = _money_amounts(other.text)
                     # un escompte, une remise : une déduction, montant signé « - »,
                     # jamais le net à payer voisin
                     if not amounts or (entity_type in SIGNED_INFO
