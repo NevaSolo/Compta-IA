@@ -94,3 +94,26 @@ def test_credit_note_lines_hygiene_paper_and_whole_ariary(processed):
         for amount in (line["debit"], line["credit"]):
             assert float(amount) == int(float(amount))
     assert sum(float(line["debit"]) for line in lines) == sum(float(line["credit"]) for line in lines) == 5297895
+
+
+def _by_account(entry: dict) -> dict[str, float]:
+    return {line["account_code"]: float(line["debit"]) or -float(line["credit"]) for line in entry["lines"]}
+
+
+def test_laboratory_equipment_is_an_asset_and_glassware_a_charge(processed):
+    """FV-2026-11-0805 : la centrifugeuse est immobilisée (215, fournisseur 404), la
+    verrerie et les lames de microscope sont des consommables (606)."""
+    _, _, entries = processed("facture_31_vente_correcte_scientifique_transport.pdf")
+    accounts = _by_account(entries[0])
+    assert accounts["215"] == 11453760            # 3 centrifugeuses, remise de 3 % déduite
+    assert accounts["606"] == 7701800             # verrerie + lames, remise déduite
+    assert accounts["404"] == -13744512           # 215 + TVA 20 %
+
+
+def test_credit_note_vat_split_between_suppliers_in_whole_ariary(processed):
+    """Avoir FV-2026-11-0804 : la TVA de chaque ligne à l'ariary près, sinon elle passait
+    au prorata du HT et le 404 recevait 3 561 862,46 au lieu de 3 575 040."""
+    _, _, entries = processed("facture_32_avoir_correct_designations_differentes.pdf")
+    accounts = _by_account(entries[0])
+    assert accounts["404"] == 3575040             # microscope 2 979 200 + TVA 20 %
+    assert accounts["401"] == 1722855

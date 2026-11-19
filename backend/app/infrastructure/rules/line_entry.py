@@ -16,7 +16,7 @@ import re
 import unicodedata
 from dataclasses import dataclass
 from datetime import date
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 from app.core.currency import money
 from app.domain.entities import EntryLine, InvoiceLine, JournalEntry
@@ -67,14 +67,20 @@ _SUPPLIES = ["vaisselle", "porcelaine", "couverts", "ustensile", "linge", "draps
              "detergent", "nettoyant", "produit d'entretien", "produits d'entretien", "savon",
              # hygiène : « papier hygiénique » n'est pas une fourniture de bureau (6064)
              "papier hygienique", "papier toilette", "essuie-tout", "mouchoir"]
+# Laboratoire : appareils durables (immobilisation) et petit matériel ou consommables
+# (charge). « Lames de microscope » (3 mots) l'emporte sur « microscope » (1 mot).
+_LAB_EQUIPMENT = ["centrifugeuse", "microscope", "spectrophotometre", "balance de precision", "etuve",
+                  "incubateur", "agitateur magnetique", "hotte a flux laminaire"]
+_LAB_SUPPLIES = ["verrerie", "becher", "eprouvette", "fiole", "pipette", "lame", "lames de microscope",
+                 "lamelle", "reactif", "tube a essai", "boite de petri"]
 # Prestations de service : installation, mise en service, formation
 _SERVICES = ["installation", "mise en service", "formation"]
 for _code in ("215", "2154"):
-    EXTRA_KEYWORDS.setdefault(_code, []).extend(_EQUIPMENT)
+    EXTRA_KEYWORDS.setdefault(_code, []).extend(_EQUIPMENT + _LAB_EQUIPMENT)
 EXTRA_KEYWORDS.setdefault("607", []).extend(_FOOD)
-EXTRA_KEYWORDS.setdefault("606", []).extend(_SUPPLIES + _MEDICAL_SUPPLIES)     # plan malgache
+EXTRA_KEYWORDS.setdefault("606", []).extend(_SUPPLIES + _MEDICAL_SUPPLIES + _LAB_SUPPLIES)  # plan malgache
 EXTRA_KEYWORDS.setdefault("6063", []).extend(_SUPPLIES)    # plan français
-EXTRA_KEYWORDS.setdefault("6068", []).extend(_MEDICAL_SUPPLIES)  # plan français
+EXTRA_KEYWORDS.setdefault("6068", []).extend(_MEDICAL_SUPPLIES + _LAB_SUPPLIES)  # plan français
 EXTRA_KEYWORDS.setdefault("604", []).extend(_SERVICES)
 # Mots courts qui sont aussi le début d'autres mots : à reconnaître en MOT ENTIER
 # (« four » ≠ « fournitures », « fournisseur » ; « sel » ≠ « sellerie » ; « riz »…)
@@ -239,15 +245,23 @@ class LineEntryBuilder:
         que la somme retombe sur la TVA de la facture, sinon au prorata du HT.
         L'écart d'arrondi va à la plus grosse ligne : la somme est exacte."""
         total_ht = sum((l.amount for l in lines), Decimal("0"))
+        # Facture en montants entiers (ariary) : TVA par ligne à l'unité. Au centime, la
+        # somme (866 649,20) s'écartait de la TVA imprimée (866 649) au-delà de la
+        # tolérance, et la TVA passait au prorata du HT (404 / 401 faux, centimes).
+        whole = all(a == a.to_integral_value() for a in [total_vat] + [l.amount for l in lines])
+        step = Decimal("1") if whole else Decimal("0.01")
+
+        def rnd(value: Decimal) -> Decimal:
+            return value.quantize(step, rounding=ROUND_HALF_UP)
         by_rate = None
         if all(l.vat_rate is not None for l in lines):
-            by_rate = [money(l.amount * l.vat_rate / 100) for l in lines]
-            if abs(sum(by_rate) - total_vat) > Decimal("0.01") * max(2, len(lines)):
+            by_rate = [rnd(l.amount * l.vat_rate / 100) for l in lines]
+            if abs(sum(by_rate) - total_vat) > step * max(2, len(lines)):
                 by_rate = None
         if by_rate is not None:
             vats = by_rate
         elif total_ht:
-            vats = [money(total_vat * l.amount / total_ht) for l in lines]
+            vats = [rnd(total_vat * l.amount / total_ht) for l in lines]
         else:
             vats = [Decimal("0")] * len(lines)
         residual = total_vat - sum(vats)
