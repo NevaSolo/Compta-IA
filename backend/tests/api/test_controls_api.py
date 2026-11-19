@@ -80,3 +80,17 @@ def test_entry_is_proposed_with_warnings_only(processed, filename, warnings):
     invoice, controls, entries = processed(filename)
     assert controls == warnings
     assert invoice["status"] == "ENTRIES_PROPOSED" and len(entries) == 1
+
+
+def test_credit_note_lines_hygiene_paper_and_whole_ariary(processed):
+    """Avoir FV-2026-11-0804 : « Papier hygiénique » n'est pas une fourniture de bureau
+    (6064), et la remise globale de 2 % est répartie à l'ariary près, sans centimes."""
+    invoice, controls, entries = processed("facture_32_avoir_correct_designations_differentes.pdf")
+    assert invoice["status"] == "ENTRIES_PROPOSED" and len(entries) == 1
+    lines = entries[0]["lines"]
+    codes = {line["account_code"] for line in lines}
+    assert "6064" not in codes and "606" in codes
+    for line in lines:
+        for amount in (line["debit"], line["credit"]):
+            assert float(amount) == int(float(amount))
+    assert sum(float(line["debit"]) for line in lines) == sum(float(line["credit"]) for line in lines) == 5297895

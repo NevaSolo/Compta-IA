@@ -143,8 +143,11 @@ def net_of_global_discount(lines: list[InvoiceLine], total_ht: Decimal | None,
     tolerance = Decimal("0.01") * max(2, len(lines))
     if gross <= 0 or abs(gross - abs(discount) - total_ht) > tolerance:
         return None
-    cent = Decimal("0.01")
-    nets = [(line.amount * total_ht / gross).quantize(cent, rounding=ROUND_HALF_UP) for line in lines]
+    # Facture en montants entiers (ariary) : parts arrondies à l'unité, pas au centime
+    # (cas réel : 207 446,38 Ar dans l'écriture d'un avoir)
+    whole = all(a == a.to_integral_value() for a in [total_ht, abs(discount)] + [l.amount for l in lines])
+    step = Decimal("1") if whole else Decimal("0.01")
+    nets = [(line.amount * total_ht / gross).quantize(step, rounding=ROUND_HALF_UP) for line in lines]
     biggest = max(range(len(nets)), key=lambda i: abs(nets[i]))
     nets[biggest] += total_ht - sum(nets)
     return [InvoiceLine(line.line_no, line.description, net, quantity=line.quantity,

@@ -64,7 +64,9 @@ _MEDICAL_SUPPLIES = ["serum", "compresse", "gant", "seringue", "pansement", "ste
 # Petit équipement et consommables d'exploitation (vaisselle, linge, produits
 # d'entretien) : une charge, par prudence, plutôt qu'une immobilisation
 _SUPPLIES = ["vaisselle", "porcelaine", "couverts", "ustensile", "linge", "draps", "serviette",
-             "detergent", "nettoyant", "produit d'entretien", "produits d'entretien", "savon"]
+             "detergent", "nettoyant", "produit d'entretien", "produits d'entretien", "savon",
+             # hygiène : « papier hygiénique » n'est pas une fourniture de bureau (6064)
+             "papier hygienique", "papier toilette", "essuie-tout", "mouchoir"]
 # Prestations de service : installation, mise en service, formation
 _SERVICES = ["installation", "mise en service", "formation"]
 for _code in ("215", "2154"):
@@ -93,11 +95,13 @@ def _normalize(text: str) -> str:
 
 def _hits(keywords: list[str], text: str) -> int:
     """Mots-clés présents EN DÉBUT DE MOT : « eau » ne se trouve ni dans « bureau »
-    ni dans « réseaux » (faux positifs d'une recherche de sous-chaîne)."""
+    ni dans « réseaux » (faux positifs d'une recherche de sous-chaîne).
+    Un mot-clé de plusieurs mots compte autant que ses mots : plus précis, il l'emporte
+    sur un mot seul. Cas réel : « papier hygiénique » (606) contre « papier » (6064)."""
     def pattern(kw: str) -> str:
         end = rf"s?(?![{_WORD_CHARS}])" if kw in WHOLE_WORDS else ""  # pluriel admis : « fours »
         return rf"(?<![{_WORD_CHARS}]){re.escape(kw)}{end}"
-    return sum(1 for kw in {_normalize(k) for k in keywords} if re.search(pattern(kw), text))
+    return sum(len(kw.split()) for kw in {_normalize(k) for k in keywords} if re.search(pattern(kw), text))
 
 
 @dataclass
