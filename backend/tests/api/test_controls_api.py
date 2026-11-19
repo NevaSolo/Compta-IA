@@ -41,6 +41,11 @@ def processed(client, auth_headers, company, malagasy_purchase_rules, tmp_path, 
     ("facture_21_erreur_taux_tva_18.pdf", "VAT_RATE_UNKNOWN"),       # taux de 18 % inexistant
     ("facture_22_erreur_montant_en_lettres.pdf", "AMOUNT_IN_WORDS"),  # 36 839 840 en lettres
     ("facture_24_demo_incorrecte_complexe.pdf", "VAT_RATE"),         # TVA 20 % sans déduire la remise
+    # multi-taux dont le TTC est faux de 5 400 : la TVA reste la somme des taux (2 127 227),
+    # pas « TVA (0 %) 0 », sinon l'écart signalé était celui de toute la TVA
+    ("facture_28_facture_avec_erreurs.pdf", "TTC_HT_TVA"),
+    ("facture_28_facture_avec_erreurs.pdf", "VAT_RATE_UNKNOWN"),      # taux de 18 %
+    ("facture_28_facture_avec_erreurs.pdf", "DUE_BEFORE_DATE"),       # échéance avant la facture
 ])
 def test_blocking_error_prevents_the_entry(processed, filename, code):
     invoice, controls, entries = processed(filename)
@@ -68,6 +73,8 @@ def test_correct_invoice_gets_its_entry_with_only_warnings(processed):
     # libellé « Remise marché public (2,5 %) » sur deux lignes, note « Acompte déduit … » à
     # côté de « TVA (0 %) » : les taux étaient lus comme montants (TVA 20 % et acompte)
     ("facture_23_demo_correcte_complexe.pdf", {"VAT_ZERO_REASON": "CONTROL_WARNING"}),
+    # avoir multi-taux : « Total avoir TTC » est le TTC (il n'était pas reconnu)
+    ("facture_27_facture_avoir_correcte.pdf", {"VAT_ZERO_REASON": "CONTROL_WARNING"}),
 ])
 def test_entry_is_proposed_with_warnings_only(processed, filename, warnings):
     invoice, controls, entries = processed(filename)

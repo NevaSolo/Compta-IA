@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 # ----------------------------------------------------------- Ancres multilingues
 ANCHORS = {
-    "TOTAL_TTC": [r"total\s*ttc", r"net\s*[àa]\s*payer", r"montant\s*ttc",
+    "TOTAL_TTC": [r"total\s*(?:(?:avoir|g[ée]n[ée]ral|facture)\s*)?ttc", r"net\s*[àa]\s*payer", r"montant\s*ttc",
                   r"amount\s*due", r"grand\s*total", r"totaly", r"total\s*$",
                   r"total\s*due", r"balance\s*due", r"total\s*payable",
                   r"amount\s*payable", r"total\s*[àa]\s*payer"],
@@ -87,7 +87,7 @@ VAT_EXEMPT_RE = re.compile(
 # la page » ou « le plus proche de 70 % de la hauteur » revenait à tirer au sort.
 # On classe les libellés (rang 0 = le plus fiable) puis on arbitre par le calcul.
 TTC_RANKS = [
-    (0, r"total\s*ttc|montant\s*ttc|grand\s*total|total\s*(?:tax|vat)\s*incl|total\s*toutes?\s*taxes"),
+    (0, r"total\s*(?:(?:avoir|g[ée]n[ée]ral|facture)\s*)?ttc|montant\s*ttc|grand\s*total|total\s*(?:tax|vat)\s*incl|total\s*toutes?\s*taxes"),
     (1, r"net\s*[àa]\s*payer|amount\s*due|total\s*due|balance\s*due|total\s*payable"
         r"|amount\s*payable|total\s*[àa]\s*payer"),
 ]
@@ -422,6 +422,14 @@ class HybridExtractor(EntityExtractor):
                 chosen = {"TOTAL_HT": best[0], "TOTAL_VAT": best[1], "TOTAL_TTC": best[2]}
             else:
                 chosen = self._multi_rate_trio(pools, position)
+            if not chosen and len(rates) >= 2:
+                # Aucun trio cohérent (facture fausse) : la TVA reste la somme des
+                # montants par taux, jamais l'un d'eux. Cas réel : « TVA (0 %) 0 » était
+                # retenu comme TVA totale et l'écart HT + TVA ≠ TTC de la facture
+                # (5 400 Ar) devenait un écart de toute la TVA.
+                vat = self._rate_parts_sum(pools["TOTAL_VAT"])
+                if vat:
+                    chosen["TOTAL_VAT"] = vat
         # Sinon (un total manquant, ou aucun trio cohérent) : meilleur candidat par type
         for entity_type, pool in pools.items():
             if entity_type not in chosen and pool:
@@ -434,23 +442,37 @@ class HybridExtractor(EntityExtractor):
                 for t, c in chosen.items()]
 
     @staticmethod
-    def _multi_rate_trio(pools: dict[str, list["_Candidate"]], position) -> dict[str, "_Candidate"]:
-        """Facture à plusieurs taux sans ligne « Total TVA » : « TVA 10 % 35,60 »
-        puis « TVA 20 % 1 510,48 ». La TVA totale est la somme des montants par
-        taux — retenue seulement si HT + somme = TTC (arbitrage par le calcul)."""
+    def _rate_parts(vat_pool: list["_Candidate"]) -> list["_Candidate"]:
+        """Un montant par taux (« TVA (20 %) », « TVA (10 %) »…). Les libellés de taxe
+        passent d'abord : un intitulé de section « B. Équipements (TVA 20 %)  27 800 000 »
+        porte un sous-total HT, pas une TVA."""
         by_rate: dict[Decimal, _Candidate] = {}
-        # D'abord les libellés de taxe (« TVA (20 %) ») : un intitulé de section
-        # « B. Équipements (TVA 20 %)  27 800 000 » porte un sous-total HT, pas une TVA
-        tax_first = sorted(pools["TOTAL_VAT"], key=lambda c: not TAX_LABEL_RE.match(c.anchor))
-        for c in tax_first:
+        for c in sorted(vat_pool, key=lambda c: not TAX_LABEL_RE.match(c.anchor)):
             rate = RATE_IN_LABEL_RE.search(c.anchor)
             if c.value is None or c.rank == 0 or not rate:
                 continue
-            by_rate.setdefault(Decimal(rate.group(1).replace(",", ".")), c)  # un montant par taux
-        if len(by_rate) < 2:
-            return {}
-        parts = list(by_rate.values())
+            by_rate.setdefault(Decimal(rate.group(1).replace(",", ".")), c)
+        return list(by_rate.values()) if len(by_rate) >= 2 else []
+
+    @classmethod
+    def _rate_parts_sum(cls, vat_pool: list["_Candidate"]) -> "_Candidate | None":
+        parts = cls._rate_parts(vat_pool)
+        if not parts:
+            return None
         total = sum((c.value for c in parts), Decimal("0"))
+        return _Candidate(raw=" + ".join(c.raw for c in parts), normalized=f"{total:.2f}", value=total,
+                          block=parts[-1].block, confidence=min(c.confidence for c in parts), rank=1,
+                          anchor=" + ".join(c.anchor for c in parts))
+
+    @classmethod
+    def _multi_rate_trio(cls, pools: dict[str, list["_Candidate"]], position) -> dict[str, "_Candidate"]:
+        """Facture à plusieurs taux sans ligne « Total TVA » : « TVA 10 % 35,60 »
+        puis « TVA 20 % 1 510,48 ». La TVA totale est la somme des montants par
+        taux — retenue seulement si HT + somme = TTC (arbitrage par le calcul)."""
+        vat = cls._rate_parts_sum(pools["TOTAL_VAT"])
+        if vat is None:
+            return {}
+        total = vat.value
         best_key, best = None, None
         for ht in pools["TOTAL_HT"]:
             for ttc in pools["TOTAL_TTC"]:
@@ -461,9 +483,6 @@ class HybridExtractor(EntityExtractor):
                     best_key, best = key, (ht, ttc)
         if best is None:
             return {}
-        vat = _Candidate(raw=" + ".join(c.raw for c in parts), normalized=f"{total:.2f}", value=total,
-                         block=parts[-1].block, confidence=min(c.confidence for c in parts), rank=1,
-                         anchor=" + ".join(c.anchor for c in parts))
         return {"TOTAL_HT": best[0], "TOTAL_VAT": vat, "TOTAL_TTC": best[1]}
 
     @staticmethod
