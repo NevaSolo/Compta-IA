@@ -117,3 +117,15 @@ def test_credit_note_vat_split_between_suppliers_in_whole_ariary(processed):
     accounts = _by_account(entries[0])
     assert accounts["404"] == 3575040             # microscope 2 979 200 + TVA 20 %
     assert accounts["401"] == 1722855
+
+
+def test_caterer_invoice_is_a_reception_charge_not_assets(processed):
+    """Traiteur ZG-2026-0412 (gala) : réception en 625, location de vaisselle en 613.
+    Avant : « Serveurs en tenue » → 2182 (informatique), « Centres de table » → 2183
+    (mobilier), et un fournisseur d'immobilisations 404."""
+    _, _, entries = processed("facture_04_traiteur_evenementiel.pdf")
+    accounts = _by_account(entries[0])
+    assert accounts["625"] == 32509000
+    assert accounts["613"] == 3429500
+    assert accounts["401"] == -43126200
+    assert not any(code.startswith("2") or code == "404" for code in accounts)

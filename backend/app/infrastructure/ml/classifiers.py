@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 # Dictionnaire multilingue (fr / en / mg) par classe d'opération
 KEYWORDS: dict[OperationType, list[str]] = {
     OperationType.ACHAT_IMMOBILISATION: [
-        "ordinateur", "computer", "laptop", "serveur", "server", "imprimante",
+        "ordinateur", "computer", "laptop", "serveur informatique", "serveur rack", "serveur de fichiers", "server", "imprimante",
         "printer", "vehicule", "véhicule", "voiture", "camion", "moto", "machine",
         "mobilier", "bureau", "furniture", "climatiseur", "materiel", "matériel",
         "equipement", "équipement", "equipment", "photocopieur", "fiara", "milina",
@@ -69,8 +69,10 @@ ACCOUNT_KEYWORDS: dict[str, list[str]] = {
     "626":  ["telephone", "téléphone", "internet", "timbre", "postal", "telma", "orange", "airtel"],
     "627":  ["frais bancaires", "commission", "agios", "banque"],
     "2181": ["vehicule", "véhicule", "voiture", "camion", "moto", "fiara"],
-    "2182": ["ordinateur", "computer", "laptop", "serveur", "imprimante", "printer", "scanner"],
-    "2183": ["mobilier", "bureau", "chaise", "table", "armoire", "furniture"],
+    # « serveur » seul désignait aussi un serveur de restaurant (« Serveurs en tenue » → 2182)
+    "2182": ["ordinateur", "computer", "laptop", "serveur informatique", "serveur rack", "serveur de fichiers", "imprimante", "printer", "scanner"],
+    # « table » seul : « Centres de table » (décoration florale) partait en mobilier
+    "2183": ["mobilier", "bureau", "chaise", "table de bureau", "table de reunion", "table de réunion", "armoire", "furniture"],
     "204":  ["logiciel", "software", "licence", "license"],
 }
 

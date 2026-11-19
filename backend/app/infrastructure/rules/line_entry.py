@@ -73,6 +73,13 @@ _LAB_EQUIPMENT = ["centrifugeuse", "microscope", "spectrophotometre", "balance d
                   "incubateur", "agitateur magnetique", "hotte a flux laminaire"]
 _LAB_SUPPLIES = ["verrerie", "becher", "eprouvette", "fiole", "pipette", "lame", "lames de microscope",
                  "lamelle", "reactif", "tube a essai", "boite de petri"]
+# Réception, événement, traiteur : une charge de réception (625 / 6257), ni des
+# marchandises (607) ni des immobilisations. Cas réel : facture de traiteur d'un gala
+# répartie en 607, 613, 2182 (« Serveurs en tenue ») et 2183 (« Centres de table »).
+_RECEPTION = ["reception", "gala", "traiteur", "cocktail", "cocktail d'accueil", "buffet", "repas",
+              "menu", "dessert", "piece montee", "forfait boissons", "servis a table",
+              "personnel de service", "brigade de cuisine", "decoration florale", "sonorisation",
+              "animation", "evenement", "evenementiel"]
 # Prestations de service : installation, mise en service, formation
 _SERVICES = ["installation", "mise en service", "formation"]
 for _code in ("215", "2154"):
@@ -82,6 +89,10 @@ EXTRA_KEYWORDS.setdefault("606", []).extend(_SUPPLIES + _MEDICAL_SUPPLIES + _LAB
 EXTRA_KEYWORDS.setdefault("6063", []).extend(_SUPPLIES)    # plan français
 EXTRA_KEYWORDS.setdefault("6068", []).extend(_MEDICAL_SUPPLIES + _LAB_SUPPLIES)  # plan français
 EXTRA_KEYWORDS.setdefault("604", []).extend(_SERVICES)
+EXTRA_KEYWORDS.setdefault("625", []).extend(_RECEPTION)    # plan malgache
+EXTRA_KEYWORDS.setdefault("6257", []).extend(_RECEPTION)   # plan français
+for _code in ("613", "6135"):   # « location de vaisselle » : une location, pas de la vaisselle (606)
+    EXTRA_KEYWORDS.setdefault(_code, []).extend(["location de vaisselle", "location de mobilier"])
 # Mots courts qui sont aussi le début d'autres mots : à reconnaître en MOT ENTIER
 # (« four » ≠ « fournitures », « fournisseur » ; « sel » ≠ « sellerie » ; « riz »…)
 WHOLE_WORDS = {"four", "riz", "sel", "vin", "lait", "cafe", "hotte", "fruit", "machine",

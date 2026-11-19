@@ -370,9 +370,9 @@ ACCOUNT_KEYWORDS: dict[str, list[str]] = {
     "205":  ["logiciel", "software", "licence", "license", "saas"],
     "2154": ["machine", "outillage industriel", "équipement industriel"],
     "2182": ["véhicule", "vehicule", "voiture", "camion", "utilitaire", "moto"],
-    "2183": ["ordinateur", "computer", "laptop", "serveur", "imprimante", "printer", "scanner",
+    "2183": ["ordinateur", "computer", "laptop", "serveur informatique", "serveur rack", "serveur de fichiers", "imprimante", "printer", "scanner",
              "écran", "ecran", "informatique", "smartphone"],
-    "2184": ["mobilier", "bureau", "chaise", "table", "armoire", "furniture", "fauteuil"],
+    "2184": ["mobilier", "bureau", "chaise", "table de bureau", "table de reunion", "table de réunion", "armoire", "furniture", "fauteuil"],
 }
 
 
